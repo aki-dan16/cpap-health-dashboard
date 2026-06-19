@@ -226,9 +226,7 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
           {[
             "💉 Zepbound PA結果確認（相馬クリニック 808-358-2182）",
             "🩸 ALT再検査（7月予定）",
-            "💊 Ro Sparks初回テスト（Ai来訪前）",
             "📦 マスクS→MW交換（8月Coastal 808-545-2500）",
-            "🌎 Round One選考進行中（セリトス移住候補）",
           ].map((t, i) => (
             <li
               key={i}
