@@ -2,7 +2,12 @@
 
 import type { CpapRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
-import { withNightTz } from "@/lib/tz";
+import {
+  withNightTz,
+  todayInTz,
+  diffDaysIso,
+  type LocationTz,
+} from "@/lib/tz";
 import {
   LEVEL_TEXT,
   LEVEL_DOT,
@@ -12,20 +17,20 @@ import {
   levelTotalSleep,
   levelSpo2Min,
   isBradycardiaAlert,
+  isValidNight,
   parseDateTs,
   fmtInt,
   fmt1,
-  MIN_VALID_SLEEP_HOURS,
   SPO2_MIN_NOTE,
   type Level,
 } from "@/lib/health";
 
 const MW_START = parseDateTs("2025-06-11");
 
-// 🚨警告アラートの走査条件（変更しやすいようここに集約）
-const ALERT_WINDOW_DAYS = 14; // 走査窓。7 / 14 / 30 で切替予定
+// アラートの走査条件（変更しやすいようここに集約）— [10]
+const ALERT_WINDOW_DAYS = 14; // 走査窓。7 / 14 / 30 で切替可
 const CPAP_START = "2026-05-01"; // 治療開始日。これより前は警告対象外
-// MIN_VALID_SLEEP_HOURS は lib/health.ts に集約（トレンド集計と共通）
+const ALERT_GAP_DAYS = 3; // データ欠落アラート閾値（[12]）
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function StatCard({
@@ -62,7 +67,13 @@ function PeriodCell({ children }: { children: React.ReactNode }) {
   return <td className="px-3 py-2 text-center text-gray-200">{children}</td>;
 }
 
-export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
+export default function SummaryTab({
+  cpap,
+  locTz = "HST",
+}: {
+  cpap: CpapRow[];
+  locTz?: LocationTz;
+}) {
   if (cpap.length === 0) {
     return (
       <EmptyState
@@ -78,7 +89,7 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
     (a, b) => parseDateTs(b.date) - parseDateTs(a.date)
   )[0];
 
-  // 🚨警告アラート判定：「直近の窓 × 治療開始以降 × 有効夜」を満たす夜だけを走査する。
+  // アラート判定：「直近の窓 × 治療開始以降 × 有効夜」を満たす夜だけを走査する。[10]
   // 基準日は今日の実日付ではなくデータセットの最新レコード日（ログの空き日があっても空にならない）。
   const latestTs = Math.max(...cpap.map((r) => parseDateTs(r.date)));
   const windowStartTs = latestTs - ALERT_WINDOW_DAYS * DAY_MS;
@@ -87,14 +98,26 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
     (r) =>
       parseDateTs(r.date) >= windowStartTs && // a. 直近 ALERT_WINDOW_DAYS 日以内
       parseDateTs(r.date) >= cpapStartTs && // b. CPAP治療開始日以降
-      r.totalSleep != null &&
-      r.totalSleep >= MIN_VALID_SLEEP_HOURS // c. 有効夜（総睡眠 >= 4h）
+      isValidNight(r) // c. 有効夜（総睡眠>=4h かつ 段階記録あり）
   );
+  // 🚨緊急：睡眠中最低心拍<40（有効夜限定 [11]）/ SpO2最低<85
   const bradyNights = eligibleNights.filter((r) => isBradycardiaAlert(r.minHr));
   const lowSpo2Nights = eligibleNights.filter(
     (r) => r.spo2Min != null && r.spo2Min < 85
   );
   const hasAlert = bradyNights.length > 0 || lowSpo2Nights.length > 0;
+
+  // ⚠️注意：直近窓・有効夜で Seal<8 または Events/hr>15（[13]）
+  const cautionNights = eligibleNights.filter(
+    (r) =>
+      (r.seal != null && r.seal < 8) || (r.events != null && r.events > 15)
+  );
+
+  // ⚠️データ欠落：最新レコード日が現在地TZの今日から ALERT_GAP_DAYS 日以上離れている（[12]）
+  const latestDateStr = latest.date;
+  const todayStr = todayInTz(locTz, new Date());
+  const gapDays = diffDaysIso(todayStr, latestDateStr);
+  const gapAlert = gapDays >= ALERT_GAP_DAYS;
 
   // 履歴最低 SpO2最低（全期間・中立表示用ベースライン。警告ではなく文脈付きで提示）
   const spo2Nights = cpap.filter((r) => r.spo2Min != null);
@@ -140,6 +163,45 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
                 {lowSpo2Nights.map((r) => r.date).join("、")}）
               </li>
             )}
+          </ul>
+        </div>
+      )}
+
+      {/* [12] データ欠落アラート */}
+      {gapAlert && (
+        <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 p-4 text-sm text-orange-200">
+          <span className="font-bold">📭 直近 {gapDays} 日ログなし</span>
+          <span className="ml-2 text-orange-300/80">
+            最新記録 {latestDateStr}（現在地 {locTz} の今日 {todayStr} 基準）。
+            myAirの記録追記をお忘れなく。
+          </span>
+        </div>
+      )}
+
+      {/* [13] 直近の注意（有効夜・Seal<8 / Events>15） */}
+      {cautionNights.length > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <div className="flex items-center gap-2 text-amber-300">
+            <span>⚠️</span>
+            <span className="font-bold">
+              直近の注意（直近{ALERT_WINDOW_DAYS}日・有効夜）
+            </span>
+          </div>
+          <ul className="mt-2 space-y-1 text-sm text-amber-200">
+            {cautionNights.map((r) => (
+              <li key={r.date}>
+                {r.date}：
+                {r.seal != null && r.seal < 8 && `Seal ${fmtInt(r.seal)}（<8）`}
+                {r.seal != null &&
+                  r.seal < 8 &&
+                  r.events != null &&
+                  r.events > 15 &&
+                  " / "}
+                {r.events != null &&
+                  r.events > 15 &&
+                  `Events/hr ${fmt1(r.events)}（>15）`}
+              </li>
+            ))}
           </ul>
         </div>
       )}

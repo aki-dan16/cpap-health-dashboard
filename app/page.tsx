@@ -118,7 +118,7 @@ export default function Home() {
           </div>
         ) : (
           <ErrorBoundary label={active} key={active}>
-            {active === "summary" && <SummaryTab cpap={cpap} />}
+            {active === "summary" && <SummaryTab cpap={cpap} locTz={locTz} />}
             {active === "trend" && <TrendTab cpap={cpap} />}
             {active === "history" && <HistoryTab cpap={cpap} />}
             {active === "blood" && <BloodTab blood={blood} />}
