@@ -1,6 +1,7 @@
 "use client";
 
 import type { CpapRow } from "@/lib/types";
+import { withNightTz } from "@/lib/tz";
 import {
   LEVEL_TEXT,
   LEVEL_DOT,
@@ -157,7 +158,9 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
         <h2 className="mb-3 text-sm font-semibold text-gray-300">
           最新の夜：{latest.date}
           {latest.sleepBand && (
-            <span className="ml-2 text-gray-500">（{latest.sleepBand}）</span>
+            <span className="ml-2 text-gray-500">
+              （{withNightTz(latest.sleepBand, latest.tz)}）
+            </span>
           )}
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

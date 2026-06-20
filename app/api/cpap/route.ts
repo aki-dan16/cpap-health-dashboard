@@ -4,6 +4,7 @@ import {
   getTitle,
   getText,
   getNumber,
+  getSelect,
 } from "@/lib/notion";
 import { parseDateTs } from "@/lib/health";
 import type { CpapRow } from "@/lib/types";
@@ -25,6 +26,8 @@ export async function GET() {
     const props = await queryAllRows(dbId);
     const rows: CpapRow[] = props.map((p) => ({
       date: getTitle(p["日付"]),
+      // TZ列が無い/未設定の既存レコード（4/20〜6/13等）はHSTにフォールバック
+      tz: getSelect(p["TZ"]) ?? "HST",
       sleepBand: getText(p["睡眠帯"]),
       seal: getNumber(p["Seal"]),
       events: getNumber(p["Events/hr"]),

@@ -1,6 +1,7 @@
 "use client";
 
 import type { CpapRow } from "@/lib/types";
+import { withNightTz } from "@/lib/tz";
 import {
   LEVEL_TEXT,
   levelSeal,
@@ -48,7 +49,7 @@ export default function HistoryTab({ cpap }: { cpap: CpapRow[] }) {
             <tr key={i} className="hover:bg-[#161616]">
               <td className={`${td} text-left font-medium`}>{r.date}</td>
               <td className={`${td} text-left text-gray-400`}>
-                {r.sleepBand || "—"}
+                {r.sleepBand ? withNightTz(r.sleepBand, r.tz) : "—"}
               </td>
               <td className={`${td} text-center ${LEVEL_TEXT[levelSeal(r.seal)]}`}>
                 {formatNum(r.seal, 0)}

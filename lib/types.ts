@@ -2,6 +2,7 @@
 
 export interface CpapRow {
   date: string;
+  tz: string; // その夜のTZ（HST/PST/PDT/JST。未設定はHSTにフォールバック）
   sleepBand: string; // 睡眠帯
   seal: number | null;
   events: number | null; // Events/hr
