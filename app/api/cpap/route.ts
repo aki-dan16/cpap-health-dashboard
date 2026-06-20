@@ -38,6 +38,11 @@ export async function GET() {
       minHr: getNumber(p["睡眠中最低心拍"]),
       rhr: getNumber(p["日次RHR"]),
       memo: getText(p["体感メモ"]),
+      // PHASE 2：列が無ければ getNumber/getSelect は null を返す（防御的）
+      usageHours: getNumber(p["使用時間(h)"]),
+      hrv: getNumber(p["HRV(ms)"]),
+      respRate: getNumber(p["呼吸数"]),
+      position: getSelect(p["体位"]),
     }));
 
     // 日付昇順

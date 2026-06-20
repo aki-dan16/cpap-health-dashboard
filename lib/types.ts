@@ -13,6 +13,11 @@ export interface CpapRow {
   minHr: number | null; // 睡眠中最低心拍
   rhr: number | null; // 日次RHR
   memo: string; // 体感メモ
+  // --- PHASE 2（列が無ければ null。データ投入後に自動で表示が立ち上がる） ---
+  usageHours: number | null; // 使用時間(h) [21]
+  hrv: number | null; // HRV(ms) [22]
+  respRate: number | null; // 呼吸数 [22]
+  position: string | null; // 体位 [25]
 }
 
 export interface BloodRow {

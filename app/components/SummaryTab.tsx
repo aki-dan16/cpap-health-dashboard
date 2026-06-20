@@ -23,10 +23,13 @@ import {
   levelSpo2Min,
   isBradycardiaAlert,
   isValidNight,
+  nightUsedFourHours,
   parseDateTs,
   fmtInt,
   fmt1,
   SPO2_MIN_NOTE,
+  COMPLIANCE_WINDOW_DAYS,
+  COMPLIANCE_TARGET_PCT,
   type Level,
 } from "@/lib/health";
 
@@ -128,6 +131,17 @@ export default function SummaryTab({
   const todayStr = todayInTz(locTz, new Date());
   const gapDays = diffDaysIso(todayStr, latestDateStr);
   const gapAlert = gapDays >= ALERT_GAP_DAYS;
+
+  // [21] CPAPコンプライアンス（直近30日・4h以上が70%以上か）。使用時間列が無ければ総睡眠で代理。
+  const compWindowStart = latestTs - COMPLIANCE_WINDOW_DAYS * DAY_MS;
+  const compNights = cpap.filter((r) => parseDateTs(r.date) >= compWindowStart);
+  const compUsed = compNights.filter((r) => nightUsedFourHours(r).used).length;
+  const compReal = compNights.some((r) => r.usageHours != null); // 実使用時間データの有無
+  const compPct =
+    compNights.length > 0
+      ? Math.round((compUsed / compNights.length) * 100)
+      : 0;
+  const compPass = compPct >= COMPLIANCE_TARGET_PCT;
 
   // 履歴最低 SpO2最低（全期間・中立表示用ベースライン。警告ではなく文脈付きで提示）
   const spo2Nights = cpap.filter((r) => r.spo2Min != null);
@@ -293,6 +307,47 @@ export default function SummaryTab({
           />
         </div>
         <p className="mt-2 text-[11px] text-gray-600">{SPO2_MIN_NOTE}</p>
+      </section>
+
+      {/* [21] CPAPコンプライアンス（保険要件） */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-gray-300">
+          CPAPコンプライアンス（保険要件・直近{COMPLIANCE_WINDOW_DAYS}日）
+        </h2>
+        <div
+          className={`rounded-xl border p-4 ${
+            compPass
+              ? "border-emerald-500/40 bg-emerald-500/10"
+              : "border-amber-500/40 bg-amber-500/10"
+          }`}
+        >
+          <div className="flex items-baseline gap-2">
+            <span
+              className={`text-3xl font-bold ${
+                compPass ? "text-emerald-300" : "text-amber-300"
+              }`}
+            >
+              {compPct}%
+            </span>
+            <span className="text-sm text-gray-300">
+              {compUsed}/{compNights.length} 夜が4h以上
+            </span>
+            <span
+              className={`ml-auto rounded-md px-2 py-0.5 text-xs font-semibold ${
+                compPass
+                  ? "bg-emerald-500/20 text-emerald-300"
+                  : "bg-amber-500/20 text-amber-300"
+              }`}
+            >
+              {compPass ? "✅ 達成" : "⚠️ 未達"}（目標{COMPLIANCE_TARGET_PCT}%）
+            </span>
+          </div>
+          <p className="mt-2 text-[11px] text-gray-500">
+            {compReal
+              ? "使用時間(h)列に基づく判定。"
+              : "⚠️ 使用時間(h)列が未投入のため、総睡眠(h)ベースの代理指標で算出（要：myAir使用時間の投入）。"}
+          </p>
+        </div>
       </section>
 
       {/* 3期間比較 */}

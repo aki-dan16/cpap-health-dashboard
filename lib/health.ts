@@ -130,3 +130,24 @@ export function isValidNight(r: {
 /** SpO2最低が24時間値である旨の共通注記（[06]） */
 export const SPO2_MIN_NOTE =
   "※ SpO2最低は24時間値であり睡眠中限定ではありません。";
+
+/* ---------- [21] CPAPコンプライアンス（保険要件） ---------- */
+
+export const COMPLIANCE_WINDOW_DAYS = 30;
+export const COMPLIANCE_MIN_HOURS = 4;
+export const COMPLIANCE_TARGET_PCT = 70;
+
+/**
+ * その夜が「4h以上使用」か。使用時間(h)があればそれを、無ければ総睡眠(h)を代理指標に使う。
+ * real=true は実使用時間に基づく判定、false は総睡眠ベースの代理。
+ */
+export function nightUsedFourHours(r: {
+  usageHours: number | null;
+  totalSleep: number | null;
+}): { used: boolean; real: boolean } {
+  if (r.usageHours != null)
+    return { used: r.usageHours >= COMPLIANCE_MIN_HOURS, real: true };
+  if (r.totalSleep != null)
+    return { used: r.totalSleep >= COMPLIANCE_MIN_HOURS, real: false };
+  return { used: false, real: false };
+}
