@@ -124,7 +124,9 @@ export default function Home() {
             )}
             {active === "history" && <HistoryTab cpap={cpap} />}
             {active === "blood" && <BloodTab blood={blood} />}
-            {active === "weight" && <WeightTab weight={weight} />}
+            {active === "weight" && (
+              <WeightTab weight={weight} blood={blood} />
+            )}
             {active === "med" && <MedTab />}
           </ErrorBoundary>
         )}

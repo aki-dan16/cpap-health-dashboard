@@ -11,6 +11,8 @@ import {
   ReferenceLine,
   ReferenceArea,
   Legend,
+  ScatterChart,
+  Scatter,
 } from "recharts";
 import type { CpapRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
@@ -343,6 +345,65 @@ export default function TrendTab({
             />
           );
         })}
+      </div>
+
+      {/* [20] Seal ↔ Events/hr 相関（有効夜のみ） */}
+      <SealEventsScatter cpap={sorted} />
+    </div>
+  );
+}
+
+function SealEventsScatter({ cpap }: { cpap: CpapRow[] }) {
+  const points = cpap
+    .filter((r) => isValidNight(r) && r.seal != null && r.events != null)
+    .map((r) => ({ seal: r.seal as number, events: r.events as number, date: r.date }));
+
+  if (points.length === 0) return null;
+
+  return (
+    <div className="mt-4 rounded-xl border border-gray-800 bg-[#161616] p-4">
+      <h3 className="text-sm font-semibold text-gray-300">
+        Seal ↔ Events/hr 相関
+      </h3>
+      <p className="mb-2 text-[11px] text-gray-500">
+        有効夜のみ。シール性（Seal）が高いほど無呼吸イベントが減るかを確認（有効性ドライバー）。
+      </p>
+      <div className="h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
+            <XAxis
+              type="number"
+              dataKey="seal"
+              name="Seal"
+              tick={{ fill: "#888", fontSize: 11 }}
+              stroke="#444"
+              domain={["auto", "auto"]}
+              label={{ value: "Seal", position: "insideBottom", fill: "#888", fontSize: 11, dy: 10 }}
+            />
+            <YAxis
+              type="number"
+              dataKey="events"
+              name="Events/hr"
+              tick={{ fill: "#888", fontSize: 11 }}
+              stroke="#444"
+              domain={["auto", "auto"]}
+            />
+            <Tooltip
+              cursor={{ strokeDasharray: "3 3" }}
+              contentStyle={{
+                background: "#1a1a1a",
+                border: "1px solid #333",
+                borderRadius: 8,
+                color: "#eee",
+              }}
+              labelStyle={{ color: "#aaa" }}
+            />
+            <ReferenceLine x={8} stroke="#f59e0b" strokeDasharray="5 4" label={{ value: "Seal 8", fill: "#f59e0b", fontSize: 10, position: "top" }} />
+            <ReferenceLine y={5} stroke="#f59e0b" strokeDasharray="5 4" label={{ value: "Events 5", fill: "#f59e0b", fontSize: 10, position: "right" }} />
+            <Scatter data={points} name="有効夜" fill="#38bdf8" />
+          </ScatterChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
