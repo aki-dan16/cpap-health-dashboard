@@ -8,6 +8,7 @@ import HistoryTab from "./components/HistoryTab";
 import BloodTab from "./components/BloodTab";
 import WeightTab from "./components/WeightTab";
 import MedTab from "./components/MedTab";
+import ErrorBoundary from "./components/ErrorBoundary";
 import type { ApiResponse, CpapRow, BloodRow, WeightRow } from "@/lib/types";
 import {
   type LocationTz,
@@ -116,14 +117,14 @@ export default function Home() {
             <span className="animate-pulse">データを読み込み中…</span>
           </div>
         ) : (
-          <>
+          <ErrorBoundary label={active} key={active}>
             {active === "summary" && <SummaryTab cpap={cpap} />}
             {active === "trend" && <TrendTab cpap={cpap} />}
             {active === "history" && <HistoryTab cpap={cpap} />}
             {active === "blood" && <BloodTab blood={blood} />}
             {active === "weight" && <WeightTab weight={weight} />}
             {active === "med" && <MedTab />}
-          </>
+          </ErrorBoundary>
         )}
       </main>
 

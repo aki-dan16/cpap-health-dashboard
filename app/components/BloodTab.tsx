@@ -11,6 +11,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { BloodRow } from "@/lib/types";
+import EmptyState from "./EmptyState";
 import { bloodAbnormal, parseDateTs, formatNum } from "@/lib/health";
 
 type BloodKey = keyof typeof bloodAbnormal;
@@ -32,7 +33,11 @@ const COLUMNS: { key: keyof BloodRow; label: string; check?: BloodKey }[] = [
 export default function BloodTab({ blood }: { blood: BloodRow[] }) {
   if (blood.length === 0) {
     return (
-      <p className="py-10 text-center text-gray-500">血液検査データがありません。</p>
+      <EmptyState
+        icon="🩸"
+        title="血液検査データがありません"
+        hint="Notion DB-B（血液検査）に検査値を追加すると、時系列テーブルとALT推移がここに表示されます。"
+      />
     );
   }
 

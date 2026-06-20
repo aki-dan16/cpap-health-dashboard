@@ -1,6 +1,7 @@
 "use client";
 
 import type { CpapRow } from "@/lib/types";
+import EmptyState from "./EmptyState";
 import { withNightTz } from "@/lib/tz";
 import {
   LEVEL_TEXT,
@@ -12,7 +13,10 @@ import {
   levelSpo2Min,
   isBradycardiaAlert,
   parseDateTs,
-  formatNum,
+  fmtInt,
+  fmt1,
+  MIN_VALID_SLEEP_HOURS,
+  SPO2_MIN_NOTE,
   type Level,
 } from "@/lib/health";
 
@@ -21,7 +25,7 @@ const MW_START = parseDateTs("2025-06-11");
 // 🚨警告アラートの走査条件（変更しやすいようここに集約）
 const ALERT_WINDOW_DAYS = 14; // 走査窓。7 / 14 / 30 で切替予定
 const CPAP_START = "2026-05-01"; // 治療開始日。これより前は警告対象外
-const MIN_VALID_SLEEP_HOURS = 4; // これ未満は無効夜として警告から除外
+// MIN_VALID_SLEEP_HOURS は lib/health.ts に集約（トレンド集計と共通）
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function StatCard({
@@ -30,18 +34,20 @@ function StatCard({
   unit,
   level,
   alert,
+  format = fmtInt,
 }: {
   label: string;
   value: number | null;
   unit?: string;
   level: Level;
   alert?: boolean;
+  format?: (v: number | null) => string; // [43] 指標ごとの桁固定
 }) {
   return (
     <div className="rounded-xl border border-gray-800 bg-[#161616] p-4">
       <div className="text-xs text-gray-400">{label}</div>
       <div className={`mt-1 flex items-baseline gap-1 ${LEVEL_TEXT[level]}`}>
-        <span className="text-2xl font-bold">{formatNum(value)}</span>
+        <span className="text-2xl font-bold">{format(value)}</span>
         {unit && <span className="text-sm text-gray-400">{unit}</span>}
         {LEVEL_DOT[level] && <span className="ml-1 text-base">{LEVEL_DOT[level]}</span>}
       </div>
@@ -59,9 +65,11 @@ function PeriodCell({ children }: { children: React.ReactNode }) {
 export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
   if (cpap.length === 0) {
     return (
-      <p className="py-10 text-center text-gray-500">
-        CPAPデータがありません。
-      </p>
+      <EmptyState
+        icon="🌙"
+        title="CPAPデータがありません"
+        hint="Notion DB-A（CPAP夜ログ）に夜の記録を追加すると、最新夜サマリーとアラートがここに表示されます。"
+      />
     );
   }
 
@@ -164,17 +172,24 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
           )}
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <StatCard label="Seal" value={latest.seal} level={levelSeal(latest.seal)} />
+          <StatCard
+            label="Seal"
+            value={latest.seal}
+            level={levelSeal(latest.seal)}
+            format={fmtInt}
+          />
           <StatCard
             label="Events/hr"
             value={latest.events}
             level={levelEvents(latest.events)}
+            format={fmt1}
           />
           <StatCard
             label="SpO2最低"
             value={latest.spo2Min}
             unit="%"
             level={levelSpo2Min(latest.spo2Min)}
+            format={fmtInt}
           />
           <StatCard
             label="睡眠中最低心拍"
@@ -182,20 +197,24 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
             unit="bpm"
             level="none"
             alert={isBradycardiaAlert(latest.minHr)}
+            format={fmtInt}
           />
           <StatCard
             label="深睡眠"
             value={latest.deepSleep}
             unit="分"
             level={levelDeepSleep(latest.deepSleep)}
+            format={fmtInt}
           />
           <StatCard
             label="総睡眠"
             value={latest.totalSleep}
             unit="h"
             level={levelTotalSleep(latest.totalSleep)}
+            format={fmt1}
           />
         </div>
+        <p className="mt-2 text-[11px] text-gray-600">{SPO2_MIN_NOTE}</p>
       </section>
 
       {/* 3期間比較 */}
@@ -245,12 +264,12 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
                   </span>
                 </td>
                 <PeriodCell>
-                  {mwSpo2Avg != null ? `${formatNum(mwSpo2Avg)}%` : "—"}
+                  {mwSpo2Avg != null ? `${fmt1(mwSpo2Avg)}%` : "—"}
                 </PeriodCell>
                 <PeriodCell>
-                  {mwSpo2Min != null ? `${formatNum(mwSpo2Min, 0)}%` : "—"}
+                  {mwSpo2Min != null ? `${fmtInt(mwSpo2Min)}%` : "—"}
                 </PeriodCell>
-                <PeriodCell>{formatNum(mwRhr)}</PeriodCell>
+                <PeriodCell>{fmt1(mwRhr)}</PeriodCell>
                 <PeriodCell>—</PeriodCell>
                 <PeriodCell>—</PeriodCell>
               </tr>

@@ -12,6 +12,7 @@ import {
   Legend,
 } from "recharts";
 import type { WeightRow } from "@/lib/types";
+import EmptyState from "./EmptyState";
 import { parseDateTs } from "@/lib/health";
 
 interface Point {
@@ -49,7 +50,11 @@ export default function WeightTab({ weight }: { weight: WeightRow[] }) {
           体重推移（kg）
         </h3>
         {data.length === 0 ? (
-          <p className="py-10 text-center text-gray-500">体重データがありません。</p>
+          <EmptyState
+            icon="⚖️"
+            title="体重データがありません"
+            hint="Notion DB-C（体重）にRENPHO/Elation等の記録を追加すると、推移グラフが描画されます。"
+          />
         ) : (
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">

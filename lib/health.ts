@@ -92,6 +92,41 @@ export function parseDateTs(s: string): number {
 }
 
 export function formatNum(v: number | null, digits = 1): string {
-  if (v == null) return "—";
+  if (v == null || Number.isNaN(v)) return "—"; // [32] NaN/undefinedを出さない
   return Number.isInteger(v) ? String(v) : v.toFixed(digits);
 }
+
+/* ---------- [43] 桁・単位の統一フォーマッタ（表記ゆれ防止） ---------- */
+
+/** 整数固定（心拍・深睡眠分・Seal・SpO2最低など） */
+export function fmtInt(v: number | null): string {
+  return v == null || Number.isNaN(v) ? "—" : String(Math.round(v));
+}
+
+/** 小数1桁固定（総睡眠h・Events/hr・SpO2平均・体重kgなど） */
+export function fmt1(v: number | null): string {
+  return v == null || Number.isNaN(v) ? "—" : v.toFixed(1);
+}
+
+/* ---------- [05] 有効夜判定（無効夜＝総睡眠<4 または 段階記録なし） ---------- */
+
+export const MIN_VALID_SLEEP_HOURS = 4;
+
+/**
+ * 有効夜＝総睡眠(h) >= 4 かつ 深睡眠が記録されている（null/未記録でない）。
+ * 深睡眠=0 は「記録された0分」とみなし有効。null は「段階記録なし」で無効。
+ */
+export function isValidNight(r: {
+  totalSleep: number | null;
+  deepSleep: number | null;
+}): boolean {
+  return (
+    r.totalSleep != null &&
+    r.totalSleep >= MIN_VALID_SLEEP_HOURS &&
+    r.deepSleep != null
+  );
+}
+
+/** SpO2最低が24時間値である旨の共通注記（[06]） */
+export const SPO2_MIN_NOTE =
+  "※ SpO2最低は24時間値であり睡眠中限定ではありません。";
