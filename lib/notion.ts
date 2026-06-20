@@ -75,6 +75,38 @@ export async function queryAllRows(
   return rows;
 }
 
+/**
+ * [41] 「日付 → page_id」インデックス。
+ * NotionでSQL/viewクエリが使えない制約下で、既存レコード更新時の page_id 逆引きに使う。
+ */
+export async function queryDatePageIndex(
+  databaseId: string
+): Promise<{ date: string; pageId: string }[]> {
+  const notion = getNotionClient();
+  const dataSourceId = await resolveDataSourceId(databaseId);
+
+  const out: { date: string; pageId: string }[] = [];
+  let cursor: string | undefined = undefined;
+
+  do {
+    const res = await notion.dataSources.query({
+      data_source_id: dataSourceId,
+      start_cursor: cursor,
+      page_size: 100,
+    });
+    for (const page of res.results) {
+      const p = page as {
+        id: string;
+        properties?: Record<string, unknown>;
+      };
+      out.push({ date: getTitle(p.properties?.["日付"]), pageId: p.id });
+    }
+    cursor = res.has_more ? res.next_cursor ?? undefined : undefined;
+  } while (cursor);
+
+  return out;
+}
+
 /* ---------- プロパティ抽出ヘルパー ---------- */
 
 type AnyProp = unknown;
