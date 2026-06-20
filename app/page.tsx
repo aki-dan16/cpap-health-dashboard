@@ -119,7 +119,9 @@ export default function Home() {
         ) : (
           <ErrorBoundary label={active} key={active}>
             {active === "summary" && <SummaryTab cpap={cpap} locTz={locTz} />}
-            {active === "trend" && <TrendTab cpap={cpap} />}
+            {active === "trend" && (
+              <TrendTab cpap={cpap} bloodDates={blood.map((b) => b.date)} />
+            )}
             {active === "history" && <HistoryTab cpap={cpap} />}
             {active === "blood" && <BloodTab blood={blood} />}
             {active === "weight" && <WeightTab weight={weight} />}
