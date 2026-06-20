@@ -17,6 +17,12 @@ import {
 
 const MW_START = parseDateTs("2025-06-11");
 
+// 🚨警告アラートの走査条件（変更しやすいようここに集約）
+const ALERT_WINDOW_DAYS = 14; // 走査窓。7 / 14 / 30 で切替予定
+const CPAP_START = "2026-05-01"; // 治療開始日。これより前は警告対象外
+const MIN_VALID_SLEEP_HOURS = 4; // これ未満は無効夜として警告から除外
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 function StatCard({
   label,
   value,
@@ -63,12 +69,31 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
     (a, b) => parseDateTs(b.date) - parseDateTs(a.date)
   )[0];
 
-  // アラート判定（全期間）
-  const bradyNights = cpap.filter((r) => isBradycardiaAlert(r.minHr));
-  const lowSpo2Nights = cpap.filter(
+  // 🚨警告アラート判定：「直近の窓 × 治療開始以降 × 有効夜」を満たす夜だけを走査する。
+  // 基準日は今日の実日付ではなくデータセットの最新レコード日（ログの空き日があっても空にならない）。
+  const latestTs = Math.max(...cpap.map((r) => parseDateTs(r.date)));
+  const windowStartTs = latestTs - ALERT_WINDOW_DAYS * DAY_MS;
+  const cpapStartTs = parseDateTs(CPAP_START);
+  const eligibleNights = cpap.filter(
+    (r) =>
+      parseDateTs(r.date) >= windowStartTs && // a. 直近 ALERT_WINDOW_DAYS 日以内
+      parseDateTs(r.date) >= cpapStartTs && // b. CPAP治療開始日以降
+      r.totalSleep != null &&
+      r.totalSleep >= MIN_VALID_SLEEP_HOURS // c. 有効夜（総睡眠 >= 4h）
+  );
+  const bradyNights = eligibleNights.filter((r) => isBradycardiaAlert(r.minHr));
+  const lowSpo2Nights = eligibleNights.filter(
     (r) => r.spo2Min != null && r.spo2Min < 85
   );
   const hasAlert = bradyNights.length > 0 || lowSpo2Nights.length > 0;
+
+  // 履歴最低 SpO2最低（全期間・中立表示用ベースライン。警告ではなく文脈付きで提示）
+  const spo2Nights = cpap.filter((r) => r.spo2Min != null);
+  const baselineNight = spo2Nights.length
+    ? spo2Nights.reduce((m, r) => (r.spo2Min! < m.spo2Min! ? r : m))
+    : null;
+  const baselinePreTreatment =
+    baselineNight != null && parseDateTs(baselineNight.date) < cpapStartTs;
 
   // MW期（6/11以降）の自動集計
   const mw = cpap.filter((r) => parseDateTs(r.date) >= MW_START);
@@ -107,6 +132,23 @@ export default function SummaryTab({ cpap }: { cpap: CpapRow[] }) {
               </li>
             )}
           </ul>
+        </div>
+      )}
+
+      {/* 履歴最低 SpO2最低（中立表示・ベースライン） */}
+      {baselineNight && baselineNight.spo2Min != null && (
+        <div className="rounded-xl border border-gray-800 bg-[#161616] p-3 text-sm">
+          <span className="text-gray-400">履歴最低 SpO2最低：</span>
+          <span className="font-semibold text-gray-100">
+            {baselineNight.spo2Min}%
+          </span>
+          <span className="text-gray-500">
+            （{baselineNight.date}
+            {baselinePreTreatment ? "・治療前ベースライン" : ""}）
+          </span>
+          <p className="mt-1 text-xs text-gray-600">
+            ※ SpO2最低の日次値は24時間値であり、睡眠中限定ではありません。
+          </p>
         </div>
       )}
 
