@@ -99,6 +99,13 @@ export default function Home() {
           >
             {loading ? "更新中…" : "🔄 更新"}
           </button>
+          <a
+            href="/print"
+            className="rounded-md border border-gray-700 bg-[#161616] px-2 py-1 text-gray-200 hover:bg-gray-800"
+            title="主治医提示用の印刷ビュー"
+          >
+            🖨 印刷用
+          </a>
         </div>
       </header>
 
