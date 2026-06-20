@@ -1,53 +1,6 @@
 "use client";
 
-interface Med {
-  name: string;
-  dose: string;
-  timing: string;
-  purpose: string;
-}
-
-const RX: Med[] = [
-  {
-    name: "リベルサス",
-    dose: "3mg",
-    timing: "毎朝起床直後・空腹・水120ml以下・服用後30分絶食",
-    purpose: "GLP-1減量",
-  },
-  { name: "アムロジピン", dose: "5mg", timing: "毎朝", purpose: "降圧（CCB）" },
-  {
-    name: "ロサルタン",
-    dose: "50mg",
-    timing: "毎朝",
-    purpose: "降圧（ARB）+腎保護",
-  },
-  {
-    name: "ロスバスタチン",
-    dose: "5mg",
-    timing: "毎晩",
-    purpose: "脂質（スタチン）",
-  },
-  {
-    name: "デュピクセント",
-    dose: "300mg SC",
-    timing: "2週に1回",
-    purpose: "アトピー",
-  },
-];
-
-const SUPP_AM = [
-  "O.N.E. Multivitamin",
-  "Nordic Naturals Omega-3 2cap（計4cap/日）",
-  "Magnesium Glycinate 1cap",
-];
-
-const SUPP_PM = [
-  "Nordic Naturals Omega-3 2cap",
-  "Magnesium Glycinate 2cap",
-  "Metagenics D3 5000+K",
-  "NAC 600mg",
-  "Melatonin 3mg（就寝前）",
-];
+import { RX, SUPP_AM, SUPP_PM, SUPP_HOLD } from "@/lib/constants";
 
 export default function MedTab() {
   return (
@@ -89,7 +42,7 @@ export default function MedTab() {
       <section>
         <h2 className="mb-3 text-sm font-semibold text-gray-300">⏸ 保留中</h2>
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-          KSM-66アシュワガンダ（ALT高値のため7月採血後まで開始中止）
+          {SUPP_HOLD}
         </div>
       </section>
     </div>

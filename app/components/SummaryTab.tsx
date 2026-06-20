@@ -3,6 +3,11 @@
 import type { CpapRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import {
+  PERIOD_BASELINES,
+  NEXT_TASKS,
+  METRIC_INFO,
+} from "@/lib/constants";
+import {
   withNightTz,
   todayInTz,
   diffDaysIso,
@@ -40,6 +45,7 @@ function StatCard({
   level,
   alert,
   format = fmtInt,
+  info,
 }: {
   label: string;
   value: number | null;
@@ -47,10 +53,14 @@ function StatCard({
   level: Level;
   alert?: boolean;
   format?: (v: number | null) => string; // [43] 指標ごとの桁固定
+  info?: string; // [36] ツールチップ説明
 }) {
   return (
     <div className="rounded-xl border border-gray-800 bg-[#161616] p-4">
-      <div className="text-xs text-gray-400">{label}</div>
+      <div className="text-xs text-gray-400" title={info}>
+        {label}
+        {info && <span className="ml-1 cursor-help text-gray-600">ⓘ</span>}
+      </div>
       <div className={`mt-1 flex items-baseline gap-1 ${LEVEL_TEXT[level]}`}>
         <span className="text-2xl font-bold">{format(value)}</span>
         {unit && <span className="text-sm text-gray-400">{unit}</span>}
@@ -239,12 +249,14 @@ export default function SummaryTab({
             value={latest.seal}
             level={levelSeal(latest.seal)}
             format={fmtInt}
+            info={METRIC_INFO.seal}
           />
           <StatCard
             label="Events/hr"
             value={latest.events}
             level={levelEvents(latest.events)}
             format={fmt1}
+            info={METRIC_INFO.events}
           />
           <StatCard
             label="SpO2最低"
@@ -252,6 +264,7 @@ export default function SummaryTab({
             unit="%"
             level={levelSpo2Min(latest.spo2Min)}
             format={fmtInt}
+            info={METRIC_INFO.spo2Min}
           />
           <StatCard
             label="睡眠中最低心拍"
@@ -260,6 +273,7 @@ export default function SummaryTab({
             level="none"
             alert={isBradycardiaAlert(latest.minHr)}
             format={fmtInt}
+            info={METRIC_INFO.minHr}
           />
           <StatCard
             label="深睡眠"
@@ -267,6 +281,7 @@ export default function SummaryTab({
             unit="分"
             level={levelDeepSleep(latest.deepSleep)}
             format={fmtInt}
+            info={METRIC_INFO.deepSleep}
           />
           <StatCard
             label="総睡眠"
@@ -274,6 +289,7 @@ export default function SummaryTab({
             unit="h"
             level={levelTotalSleep(latest.totalSleep)}
             format={fmt1}
+            info={METRIC_INFO.totalSleep}
           />
         </div>
         <p className="mt-2 text-[11px] text-gray-600">{SPO2_MIN_NOTE}</p>
@@ -295,28 +311,21 @@ export default function SummaryTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
-              <tr className="bg-[#141414]">
-                <td className="px-3 py-2 text-left text-gray-300">
-                  CPAP前
-                  <span className="ml-1 text-xs text-gray-500">(4/20-30)</span>
-                </td>
-                <PeriodCell>93.4%</PeriodCell>
-                <PeriodCell>82%</PeriodCell>
-                <PeriodCell>86.6</PeriodCell>
-                <PeriodCell>14.5ms</PeriodCell>
-                <PeriodCell>14.9</PeriodCell>
-              </tr>
-              <tr className="bg-[#141414]">
-                <td className="px-3 py-2 text-left text-gray-300">
-                  S期
-                  <span className="ml-1 text-xs text-gray-500">(5/1-6/10)</span>
-                </td>
-                <PeriodCell>94.8%</PeriodCell>
-                <PeriodCell>85%</PeriodCell>
-                <PeriodCell>86.1</PeriodCell>
-                <PeriodCell>16.0ms</PeriodCell>
-                <PeriodCell>15.1</PeriodCell>
-              </tr>
+              {PERIOD_BASELINES.map((p) => (
+                <tr key={p.label} className="bg-[#141414]">
+                  <td className="px-3 py-2 text-left text-gray-300">
+                    {p.label}
+                    <span className="ml-1 text-xs text-gray-500">
+                      ({p.range})
+                    </span>
+                  </td>
+                  <PeriodCell>{p.spo2Avg}</PeriodCell>
+                  <PeriodCell>{p.spo2Min}</PeriodCell>
+                  <PeriodCell>{p.rhr}</PeriodCell>
+                  <PeriodCell>{p.hrv}</PeriodCell>
+                  <PeriodCell>{p.resp}</PeriodCell>
+                </tr>
+              ))}
               <tr className="bg-sky-500/5">
                 <td className="px-3 py-2 text-left text-sky-300">
                   MW期
@@ -349,11 +358,7 @@ export default function SummaryTab({
           次回タスク / 通院
         </h2>
         <ul className="space-y-2">
-          {[
-            "💉 Zepbound PA結果確認（相馬クリニック 808-358-2182）",
-            "🩸 ALT再検査（7月予定）",
-            "📦 マスクS→MW交換（8月Coastal 808-545-2500）",
-          ].map((t, i) => (
+          {NEXT_TASKS.map((t, i) => (
             <li
               key={i}
               className="rounded-lg border border-gray-800 bg-[#161616] px-4 py-3 text-sm text-gray-200"
@@ -363,6 +368,11 @@ export default function SummaryTab({
           ))}
         </ul>
       </section>
+
+      {/* [29] 運用注記：アプリ内/外の境界 */}
+      <p className="rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-[11px] text-gray-500">
+        ℹ️ 運用メモ：myAir画像 →数値抽出 → DB追記は<strong className="text-gray-400">チャット経由</strong>で行います（アプリ内完結ではありません）。本ダッシュボードはNotionに入った数値の閲覧・分析専用です。
+      </p>
     </div>
   );
 }

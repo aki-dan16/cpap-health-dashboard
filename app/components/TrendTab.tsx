@@ -17,27 +17,9 @@ import {
 import type { CpapRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import { parseDateTs, isValidNight, SPO2_MIN_NOTE } from "@/lib/health";
+import { MASK_BANDS, EVENT_ANNOTATIONS } from "@/lib/constants";
 
 const MA_WINDOW = 7; // [15] 移動平均の窓（有効夜サンプル数ベース）
-
-// [14] マスク期の背景バンド（境界は実在する日付にスナップして描画）
-const MASK_BANDS: {
-  label: string;
-  start?: string;
-  end?: string;
-  color: string;
-}[] = [
-  { label: "CPAP前", end: "2026-04-30", color: "#ef4444" },
-  { label: "S期", start: "2026-05-01", end: "2026-06-10", color: "#38bdf8" },
-  { label: "MW期", start: "2026-06-11", color: "#34d399" },
-];
-
-// [17] イベント注釈（配列で管理し追加しやすく。未確定日はプレースホルダ）
-const EVENT_ANNOTATIONS: { date: string; label: string }[] = [
-  { date: "2026-06-11", label: "マスク変更(M wide)" },
-  { date: "2026-06-19", label: "SDカード挿入" },
-  { date: "2026-08-01", label: "クッション交換(予定・要更新)" },
-];
 
 interface ChartDef {
   key: keyof CpapRow;

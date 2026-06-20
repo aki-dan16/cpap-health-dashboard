@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import TabNav from "./components/TabNav";
 import SummaryTab from "./components/SummaryTab";
 import TrendTab from "./components/TrendTab";
@@ -44,28 +44,25 @@ export default function Home() {
     window.localStorage.setItem(LOC_STORAGE_KEY, v);
   };
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      setLoading(true);
-      const [c, b, w] = await Promise.all([
-        fetchRows<CpapRow>("/api/cpap"),
-        fetchRows<BloodRow>("/api/blood"),
-        fetchRows<WeightRow>("/api/weight"),
-      ]);
-      if (!mounted) return;
-      setCpap(c.rows);
-      setBlood(b.rows);
-      setWeight(w.rows);
-      const errs = [c.error, b.error, w.error].filter(Boolean) as string[];
-      setErrors(errs);
-      setUpdatedAt(new Date());
-      setLoading(false);
-    })();
-    return () => {
-      mounted = false;
-    };
+  // [28] Notionから最新データを取得（初回＆手動リフレッシュ共通）
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const [c, b, w] = await Promise.all([
+      fetchRows<CpapRow>("/api/cpap"),
+      fetchRows<BloodRow>("/api/blood"),
+      fetchRows<WeightRow>("/api/weight"),
+    ]);
+    setCpap(c.rows);
+    setBlood(b.rows);
+    setWeight(w.rows);
+    setErrors([c.error, b.error, w.error].filter(Boolean) as string[]);
+    setUpdatedAt(new Date());
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   return (
     <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-5">
@@ -78,21 +75,31 @@ export default function Home() {
             CPAP・血液検査・体重の統合モニタリング
           </p>
         </div>
-        <label className="flex shrink-0 items-center gap-1 text-xs text-gray-400">
-          <span className="hidden sm:inline">現在地TZ</span>
-          <span aria-hidden>🌐</span>
-          <select
-            value={locTz}
-            onChange={(e) => changeLocTz(e.target.value as LocationTz)}
-            className="rounded-md border border-gray-700 bg-[#161616] px-2 py-1 text-gray-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-xs text-gray-400">
+          <label className="flex items-center gap-1">
+            <span className="hidden sm:inline">現在地TZ</span>
+            <span aria-hidden>🌐</span>
+            <select
+              value={locTz}
+              onChange={(e) => changeLocTz(e.target.value as LocationTz)}
+              className="rounded-md border border-gray-700 bg-[#161616] px-2 py-1 text-gray-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            >
+              {LOCATION_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="rounded-md border border-gray-700 bg-[#161616] px-2 py-1 text-gray-200 hover:bg-gray-800 disabled:opacity-50"
+            title="Notionから最新データを取得"
           >
-            {LOCATION_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            {loading ? "更新中…" : "🔄 更新"}
+          </button>
+        </div>
       </header>
 
       <TabNav active={active} onChange={setActive} />

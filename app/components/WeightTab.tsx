@@ -15,6 +15,7 @@ import {
 import type { WeightRow, BloodRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import { parseDateTs } from "@/lib/health";
+import { DXA, WEIGHT_GOALS_KG } from "@/lib/constants";
 
 const isFullDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -131,9 +132,15 @@ export default function WeightTab({
                 />
                 <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: "#aaa" }} />
                 <Legend wrapperStyle={{ fontSize: 12, color: "#aaa" }} />
-                <ReferenceLine y={100} stroke="#ef4444" strokeDasharray="4 4" label={{ value: "100kg", fill: "#ef4444", fontSize: 10, position: "insideTopRight" }} />
-                <ReferenceLine y={95} stroke="#fbbf24" strokeDasharray="4 4" label={{ value: "95kg", fill: "#fbbf24", fontSize: 10, position: "insideTopRight" }} />
-                <ReferenceLine y={85} stroke="#34d399" strokeDasharray="4 4" label={{ value: "85kg", fill: "#34d399", fontSize: 10, position: "insideTopRight" }} />
+                {WEIGHT_GOALS_KG.map((g) => (
+                  <ReferenceLine
+                    key={g.value}
+                    y={g.value}
+                    stroke={g.color}
+                    strokeDasharray="4 4"
+                    label={{ value: g.label, fill: g.color, fontSize: 10, position: "insideTopRight" }}
+                  />
+                ))}
                 {/* トレンド線（凡例はScatter側で表示） */}
                 <Line type="monotone" dataKey="renpho" stroke="#34d399" strokeWidth={2} dot={false} legendType="none" connectNulls isAnimationActive={false} />
                 <Line type="monotone" dataKey="elation" stroke="#9ca3af" strokeWidth={2} strokeDasharray="5 4" dot={false} legendType="none" connectNulls isAnimationActive={false} />
@@ -193,13 +200,11 @@ export default function WeightTab({
       {/* DXA固定表示 */}
       <div className="rounded-xl border border-gray-800 bg-[#161616] p-4">
         <h3 className="mb-1 text-sm font-semibold text-gray-300">DXAスキャン</h3>
-        <p className="mb-3 text-xs text-gray-500">2025/6/13 時点</p>
+        <p className="mb-3 text-xs text-gray-500">{DXA.date} 時点</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <DxaCell label="体重" value="107.9" unit="kg" />
-          <DxaCell label="除脂肪" value="80.4" unit="kg" />
-          <DxaCell label="体脂肪" value="25.5" unit="%" />
-          <DxaCell label="VAT" value="162" unit="cm²" dot="🔴" tone="text-red-400" />
-          <DxaCell label="T-score" value="-1.5" dot="🟡" tone="text-amber-400" />
+          {DXA.items.map((it) => (
+            <DxaCell key={it.label} {...it} />
+          ))}
         </div>
       </div>
     </div>
