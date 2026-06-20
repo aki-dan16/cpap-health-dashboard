@@ -13,6 +13,8 @@ import {
   Legend,
   ScatterChart,
   Scatter,
+  BarChart,
+  Bar,
 } from "recharts";
 import type { CpapRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
@@ -78,6 +80,23 @@ const CHARTS: ChartDef[] = [
     color: "#fb7185",
     threshold: { value: 5, label: "閾値 5" }, // [16] Events/hr=5
     ma: true,
+  },
+];
+
+// [22] HRV・呼吸数（DB-Aに列がある場合のみ表示）
+const PHASE2_CHARTS: ChartDef[] = [
+  {
+    key: "hrv",
+    title: "HRV (ms)",
+    color: "#22d3ee",
+    note: "Apple Health由来。DB-Aの「HRV(ms)」列にデータが入ると表示。",
+    ma: true,
+  },
+  {
+    key: "respRate",
+    title: "呼吸数 (/min)",
+    color: "#c084fc",
+    note: "DB-Aの「呼吸数」列にデータが入ると表示。",
   },
 ];
 
@@ -285,6 +304,14 @@ export default function TrendTab({
   );
   const dates = sorted.map((r) => r.date);
 
+  // [22] HRV/呼吸数は列にデータがある場合のみチャートを追加
+  const activeCharts = [
+    ...CHARTS,
+    ...PHASE2_CHARTS.filter((def) =>
+      sorted.some((r) => (r[def.key] as number | null) != null)
+    ),
+  ];
+
   // [17] 静的イベント＋採血日(DB-B)を注釈に統合
   const annotations = [
     ...EVENT_ANNOTATIONS,
@@ -299,7 +326,7 @@ export default function TrendTab({
         破線＝{MA_WINDOW}日移動平均。背景バンド＝マスク期、縦破線＝イベント。
       </p>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {CHARTS.map((def) => {
+        {activeCharts.map((def) => {
           const pts = sorted.map((r) => ({
             r,
             valid: isValidNight(r),
@@ -329,8 +356,72 @@ export default function TrendTab({
         })}
       </div>
 
+      {/* [25] 体位 ↔ Events/hr 対比 */}
+      <PositionEventsView cpap={sorted} />
+
       {/* [20] Seal ↔ Events/hr 相関（有効夜のみ） */}
       <SealEventsScatter cpap={sorted} />
+    </div>
+  );
+}
+
+function PositionEventsView({ cpap }: { cpap: CpapRow[] }) {
+  // 有効夜・体位/Events が揃う夜のみ集計
+  const rows = cpap.filter(
+    (r) => isValidNight(r) && r.position != null && r.events != null
+  );
+
+  if (rows.length === 0) {
+    return (
+      <div className="mt-4">
+        <EmptyState
+          icon="🛏️"
+          title="体位データが未収集です"
+          hint="DB-Aに「体位」列（側臥位/仰臥位/腹臥位）を追加して記録すると、体位ごとのEvents/hr差がここに表示されます（無呼吸の体位差は最大の自己最適化レバー）。"
+        />
+      </div>
+    );
+  }
+
+  const groups = new Map<string, { sum: number; n: number }>();
+  for (const r of rows) {
+    const g = groups.get(r.position as string) ?? { sum: 0, n: 0 };
+    g.sum += r.events as number;
+    g.n += 1;
+    groups.set(r.position as string, g);
+  }
+  const data = Array.from(groups.entries()).map(([position, g]) => ({
+    position,
+    avgEvents: +(g.sum / g.n).toFixed(1),
+    n: g.n,
+  }));
+
+  return (
+    <div className="mt-4 rounded-xl border border-gray-800 bg-[#161616] p-4">
+      <h3 className="text-sm font-semibold text-gray-300">
+        体位 ↔ Events/hr（有効夜・平均）
+      </h3>
+      <p className="mb-2 text-[11px] text-gray-500">
+        体位ごとの平均Events/hr。低いほどその体位で無呼吸が少ない。
+      </p>
+      <div className="h-56 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
+            <XAxis dataKey="position" tick={{ fill: "#888", fontSize: 11 }} stroke="#444" />
+            <YAxis tick={{ fill: "#888", fontSize: 11 }} stroke="#444" />
+            <Tooltip
+              contentStyle={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, color: "#eee" }}
+              labelStyle={{ color: "#aaa" }}
+            />
+            <ReferenceLine y={5} stroke="#f59e0b" strokeDasharray="5 4" label={{ value: "閾値 5", fill: "#f59e0b", fontSize: 10, position: "insideTopRight" }} />
+            <Bar dataKey="avgEvents" name="平均Events/hr" fill="#fb7185" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-1 text-[11px] text-gray-600">
+        n（夜数）：{data.map((d) => `${d.position}=${d.n}`).join(" / ")}
+      </p>
     </div>
   );
 }
