@@ -65,7 +65,7 @@ export default function Home() {
   }, [loadData]);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-5">
+    <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col py-5 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
       <header className="mb-2 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-100 sm:text-2xl">

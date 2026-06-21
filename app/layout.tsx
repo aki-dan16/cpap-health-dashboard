@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Noto_Sans_JP } from "next/font/google";
 import "./globals.css";
 
@@ -13,6 +13,16 @@ const notoSansJp = Noto_Sans_JP({
 export const metadata: Metadata = {
   title: "CPAP Health Dashboard",
   description: "CPAP治療・血液検査・体重の統合ヘルスダッシュボード",
+};
+
+// [layout] モバイル/PWA(standalone)で正しい幅に描画させる。未指定だとSafariが
+// 既定980px幅でレンダリングし、横スクロール・右見切れの原因になる。
+// viewportFit:"cover" で env(safe-area-inset-*) を有効化（ノッチ/角丸対応）。
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0f0f0f",
 };
 
 export default function RootLayout({

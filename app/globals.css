@@ -10,12 +10,27 @@
   --color-foreground: var(--foreground);
 }
 
+html {
+  /* iOSの横向き等で文字が自動拡大して幅が膨らむのを防ぐ */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 html,
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
     "Hiragino Sans", Meiryo, sans-serif;
+  /* 横はみ出しの最終保険：ページ本体は横スクロールさせない（縦のみ）。
+     多列テーブルは各自の overflow-x-auto ラッパ内で横スクロールできる。 */
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  /* 長い語/URL/絵文字後の長文がビューポートを押し広げないよう折り返す */
+  overflow-wrap: break-word;
 }
 
 /* スクロールバー（ダーク） */
