@@ -18,8 +18,68 @@ import {
 } from "recharts";
 import type { CpapRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
-import { parseDateTs, isValidNight, SPO2_MIN_NOTE } from "@/lib/health";
-import { MASK_BANDS, EVENT_ANNOTATIONS } from "@/lib/constants";
+import {
+  parseDateTs,
+  isValidNight,
+  SPO2_MIN_NOTE,
+  levelSeal,
+  levelEvents,
+  levelDeepSleep,
+  levelTotalSleep,
+  levelSpo2Min,
+  isBradycardiaAlert,
+  fmtInt,
+  fmt1,
+  formatNum,
+  type Level,
+  LEVEL_BADGE,
+  LEVEL_DOT,
+} from "@/lib/health";
+import { MASK_BANDS, EVENT_ANNOTATIONS, CPAP_METRIC_GUIDE } from "@/lib/constants";
+
+// 評価バッジ：lib/health.ts の既存しきい値関数を流用（新規定義しない）。
+// 中立（しきい値なし）指標は none で表示のみ。
+const LEVEL_FN: Partial<Record<keyof CpapRow, (v: number | null) => Level>> = {
+  seal: levelSeal,
+  events: levelEvents,
+  deepSleep: levelDeepSleep,
+  totalSleep: levelTotalSleep,
+  spo2Min: levelSpo2Min,
+};
+
+// 表示桁（既存サマリーの流儀に合わせる）
+const FMT: Partial<Record<keyof CpapRow, (v: number | null) => string>> = {
+  seal: fmtInt,
+  events: fmt1,
+  spo2Min: fmtInt,
+  spo2Avg: fmt1,
+  deepSleep: fmtInt,
+  totalSleep: fmt1,
+  minHr: fmtInt,
+  rhr: fmtInt,
+  hrv: fmtInt,
+  respRate: fmt1,
+};
+
+/** 最新有効夜の値に対する評価（バッジのレベルと表示ラベル）を算出 */
+function evalForKey(
+  key: keyof CpapRow,
+  value: number | null
+): { level: Level; label: string } {
+  const fmt = FMT[key] ?? formatNum;
+  const fn = LEVEL_FN[key];
+  if (fn) {
+    const level = fn(value);
+    return { level, label: `${LEVEL_DOT[level]} 最新 ${fmt(value)}`.trim() };
+  }
+  // minHr は <40 のみ🚨、それ以外は中立
+  if (key === "minHr") {
+    if (isBradycardiaAlert(value)) return { level: "red", label: `🚨 最新 ${fmt(value)}` };
+    return { level: "none", label: `最新 ${fmt(value)}` };
+  }
+  // その他（rhr / spo2Avg / hrv / respRate）は中立・表示のみ
+  return { level: "none", label: `最新 ${fmt(value)}` };
+}
 
 const MA_WINDOW = 7; // [15] 移動平均の窓（有効夜サンプル数ベース）
 
@@ -139,17 +199,31 @@ function TrendChart({
   def,
   dates,
   annotations,
+  evalLevel,
+  evalLabel,
 }: {
   data: Point[];
   def: ChartDef;
   dates: string[];
   annotations: { date: string; label: string }[];
+  evalLevel: Level;
+  evalLabel: string;
 }) {
   const dateSet = new Set(dates);
+  // 解説は固定テキスト（constants）優先。無ければ既存 note にフォールバック。
+  const guide = CPAP_METRIC_GUIDE[def.key as string] ?? def.note;
   return (
     <div className="rounded-xl border border-gray-800 bg-[#161616] p-4">
-      <h3 className="text-sm font-semibold text-gray-300">{def.title}</h3>
-      {def.note && <p className="mb-2 text-[11px] text-gray-500">{def.note}</p>}
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="text-sm font-semibold text-gray-300">{def.title}</h3>
+        {/* 評価バッジ（最新有効夜の値に対する動的評価） */}
+        <span
+          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${LEVEL_BADGE[evalLevel]}`}
+        >
+          {evalLabel}
+        </span>
+      </div>
+      {guide && <p className="mb-2 mt-1 text-[11px] text-gray-500">{guide}</p>}
       <div className="h-60 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
@@ -304,6 +378,9 @@ export default function TrendTab({
   );
   const dates = sorted.map((r) => r.date);
 
+  // 評価の基準＝最新の「有効夜」（無効夜はバッジ算出に使わない）
+  const latestValid = [...sorted].reverse().find(isValidNight) ?? null;
+
   // [22] HRV/呼吸数は列にデータがある場合のみチャートを追加
   const activeCharts = [
     ...CHARTS,
@@ -320,10 +397,17 @@ export default function TrendTab({
 
   return (
     <div>
-      <p className="mb-3 text-xs text-gray-500">
+      <p className="mb-1 text-xs text-gray-500">
         🔵 有効夜（総睡眠≥4h・段階記録あり）を集計対象、
         <span className="text-gray-400">グレー点＝無効夜（集計外）</span>、
         破線＝{MA_WINDOW}日移動平均。背景バンド＝マスク期、縦破線＝イベント。
+      </p>
+      <p className="mb-3 text-[11px] text-gray-600">
+        各カードの評価バッジは
+        <span className="text-gray-400">
+          最新の有効夜（{latestValid ? latestValid.date : "—"}）
+        </span>
+        の値を、既存しきい値で動的判定した参考値です。無効夜は評価に使いません。医学的判断は主治医（相馬先生）に委ねてください。
       </p>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {activeCharts.map((def) => {
@@ -344,6 +428,11 @@ export default function TrendTab({
             invalid: p.valid ? null : p.v,
             ma: ma ? ma[i] : null,
           }));
+          // 最新有効夜の値で評価（無効夜は使わない）
+          const latestVal = latestValid
+            ? (latestValid[def.key] as number | null)
+            : null;
+          const { level, label } = evalForKey(def.key, latestVal);
           return (
             <TrendChart
               key={def.key as string}
@@ -351,6 +440,8 @@ export default function TrendTab({
               def={def}
               dates={dates}
               annotations={annotations}
+              evalLevel={level}
+              evalLabel={label}
             />
           );
         })}

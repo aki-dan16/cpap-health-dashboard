@@ -13,6 +13,8 @@ import {
 import type { BloodRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import { bloodAbnormal, parseDateTs, formatNum } from "@/lib/health";
+import { BLOOD_GUIDE, type BloodGuide } from "@/lib/constants";
+import { LEVEL_BADGE } from "@/lib/health";
 
 type BloodKey = keyof typeof bloodAbnormal;
 
@@ -29,6 +31,67 @@ const COLUMNS: { key: keyof BloodRow; label: string; check?: BloodKey }[] = [
   { key: "vitd", label: "VitD", check: "vitd" },
   { key: "tsh", label: "TSH" },
 ];
+
+/** 年月日まで揃った完全な日付か（年月のみのレコードは前回比に使わない） */
+const isFullDate = (s: string) => /^\d{4}[-/]\d{2}[-/]\d{2}$/.test(s);
+
+/** 項目ごとの評価カード（日本語名・意味・基準値・最新評価・前回比） */
+function BloodItemCard({
+  guide,
+  value,
+  valueDate,
+  check,
+  prevDiff,
+}: {
+  guide: BloodGuide;
+  value: number | null;
+  valueDate: string | null;
+  check?: BloodKey;
+  prevDiff: number | null;
+}) {
+  // 評価バッジ：lib/health.ts の bloodAbnormal を流用（新規しきい値を定義しない）
+  let badgeClass = LEVEL_BADGE.none;
+  let badgeText = "—";
+  if (value != null) {
+    if (check) {
+      const abnormal = bloodAbnormal[check](value);
+      badgeClass = abnormal ? LEVEL_BADGE.red : LEVEL_BADGE.green;
+      badgeText = abnormal ? "🔴 基準外" : "🟢 正常";
+    } else {
+      badgeText = "中立"; // 基準が無い項目（TSH等）
+    }
+  }
+
+  // 前回比の矢印（増減の良し悪しは項目で逆になるため色は付けず中立表示）
+  let trend = "—";
+  if (prevDiff != null) {
+    const arrow = prevDiff > 0 ? "↑" : prevDiff < 0 ? "↓" : "→";
+    const sign = prevDiff > 0 ? "+" : "";
+    trend = prevDiff === 0 ? "→ 0" : `${arrow} ${sign}${formatNum(prevDiff)}`;
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-[#161616] p-3">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-sm font-semibold text-gray-200">{guide.name}</span>
+        <span
+          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${badgeClass}`}
+        >
+          {badgeText}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] text-gray-500">{guide.desc}</p>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-gray-400">
+        <span>基準：{guide.ref}</span>
+        <span className="text-gray-200">
+          最新：{formatNum(value)}
+          {valueDate && <span className="text-gray-500">（{valueDate}）</span>}
+        </span>
+        <span>前回比：{trend}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function BloodTab({ blood }: { blood: BloodRow[] }) {
   if (blood.length === 0) {
@@ -56,6 +119,42 @@ export default function BloodTab({ blood }: { blood: BloodRow[] }) {
 
   return (
     <div className="space-y-6">
+      {/* 項目別サマリー：日本語名・意味・基準値・最新評価・前回比（最新採血から動的） */}
+      <section>
+        <h3 className="mb-1 text-sm font-semibold text-gray-300">
+          項目別サマリー（最新採血の評価）
+        </h3>
+        <p className="mb-3 text-[11px] text-gray-600">
+          ※ 各評価は一般的な基準値に基づく参考表示で、診断ではありません。医学的判断は主治医（相馬先生）に委ねてください。
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {COLUMNS.map((c) => {
+            const guide = BLOOD_GUIDE[c.key as string];
+            if (!guide) return null;
+            // 最新値＝降順で最初に非nullの採血値（その採血日も保持）
+            const latestRow = desc.find((r) => (r[c.key] as number | null) != null);
+            const value = latestRow ? (latestRow[c.key] as number | null) : null;
+            const valueDate = latestRow ? latestRow.date : null;
+            // 前回比＝完全日付かつ非nullの直近2件で比較（年月のみは除外）
+            const fullVals = desc
+              .filter((r) => isFullDate(r.date) && (r[c.key] as number | null) != null)
+              .map((r) => r[c.key] as number);
+            const prevDiff =
+              fullVals.length >= 2 ? fullVals[0] - fullVals[1] : null;
+            return (
+              <BloodItemCard
+                key={c.key as string}
+                guide={guide}
+                value={value}
+                valueDate={valueDate}
+                check={c.check}
+                prevDiff={prevDiff}
+              />
+            );
+          })}
+        </div>
+      </section>
+
       <div className="overflow-x-auto rounded-xl border border-gray-800">
         <table className="w-full min-w-[860px]">
           <thead className="bg-[#1a1a1a]">
