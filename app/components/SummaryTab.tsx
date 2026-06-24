@@ -2,11 +2,7 @@
 
 import type { CpapRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
-import {
-  PERIOD_BASELINES,
-  NEXT_TASKS,
-  METRIC_INFO,
-} from "@/lib/constants";
+import { PERIOD_BASELINES, NEXT_TASKS } from "@/lib/constants";
 import {
   withNightTz,
   todayInTz,
@@ -15,7 +11,7 @@ import {
 } from "@/lib/tz";
 import {
   LEVEL_TEXT,
-  LEVEL_DOT,
+  LEVEL_BADGE,
   levelSeal,
   levelEvents,
   levelDeepSleep,
@@ -27,51 +23,64 @@ import {
   parseDateTs,
   fmtInt,
   fmt1,
-  SPO2_MIN_NOTE,
   COMPLIANCE_WINDOW_DAYS,
-  COMPLIANCE_TARGET_PCT,
   type Level,
 } from "@/lib/health";
 
 const MW_START = parseDateTs("2025-06-11");
 
 // アラートの走査条件（変更しやすいようここに集約）— [10]
-const ALERT_WINDOW_DAYS = 14; // 走査窓。7 / 14 / 30 で切替可
+const ALERT_WINDOW_DAYS = 7; // 走査窓。7 / 14 / 30 で切替可（直近7日基準）
+const RECENT7_DAYS = 7; // [修正4] 3期間比較の「直近7日間」行の集計窓
 const CPAP_START = "2026-05-01"; // 治療開始日。これより前は警告対象外
 const ALERT_GAP_DAYS = 3; // データ欠落アラート閾値（[12]）
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function StatCard({
+// 評価バッジの表示ラベル（lib/health.ts の Level を流用・新規しきい値は定義しない）
+const LEVEL_LABEL: Record<Level, string> = {
+  green: "🟢 良好",
+  yellow: "🟡 注意",
+  red: "🔴 要対応",
+  none: "",
+};
+
+/** 最新有効夜のフル評価表示の1項目（値＋評価バッジ＋簡潔な解説）— [修正5] */
+function NightMetric({
   label,
   value,
   unit,
   level,
-  alert,
   format = fmtInt,
-  info,
+  desc,
+  alert,
 }: {
   label: string;
   value: number | null;
   unit?: string;
   level: Level;
-  alert?: boolean;
-  format?: (v: number | null) => string; // [43] 指標ごとの桁固定
-  info?: string; // [36] ツールチップ説明
+  format?: (v: number | null) => string;
+  desc: string;
+  alert?: boolean; // 🚨（睡眠中最低心拍<40）
 }) {
+  const badgeText = alert ? "🚨 緊急" : LEVEL_LABEL[level];
+  const badgeClass = alert ? LEVEL_BADGE.red : LEVEL_BADGE[level];
   return (
-    <div className="rounded-xl border border-gray-800 bg-[#161616] p-4">
-      <div className="text-xs text-gray-400" title={info}>
-        {label}
-        {info && <span className="ml-1 cursor-help text-gray-600">ⓘ</span>}
+    <div className="rounded-xl border border-gray-800 bg-[#161616] p-3">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs text-gray-400">{label}</span>
+        {badgeText && (
+          <span
+            className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${badgeClass}`}
+          >
+            {badgeText}
+          </span>
+        )}
       </div>
       <div className={`mt-1 flex items-baseline gap-1 ${LEVEL_TEXT[level]}`}>
         <span className="text-2xl font-bold">{format(value)}</span>
         {unit && <span className="text-sm text-gray-400">{unit}</span>}
-        {LEVEL_DOT[level] && <span className="ml-1 text-base">{LEVEL_DOT[level]}</span>}
       </div>
-      {alert && (
-        <div className="mt-1 text-xs font-semibold text-red-400">🚨 緊急</div>
-      )}
+      <p className="mt-1 text-[11px] text-gray-500">{desc}</p>
     </div>
   );
 }
@@ -97,10 +106,14 @@ export default function SummaryTab({
     );
   }
 
-  // 最新の夜
-  const latest = [...cpap].sort(
+  // 日付降順（最新が先頭）
+  const sortedDesc = [...cpap].sort(
     (a, b) => parseDateTs(b.date) - parseDateTs(a.date)
-  )[0];
+  );
+  const latest = sortedDesc[0];
+  // [修正5] 評価対象は最新の「有効夜」。無効夜は評価に使わない。
+  const latestValid = sortedDesc.find(isValidNight) ?? null;
+  const latestIsInvalid = latestValid != null && latestValid.date !== latest.date;
 
   // アラート判定：「直近の窓 × 治療開始以降 × 有効夜」を満たす夜だけを走査する。[10]
   // 基準日は今日の実日付ではなくデータセットの最新レコード日（ログの空き日があっても空にならない）。
@@ -141,18 +154,8 @@ export default function SummaryTab({
     compNights.length > 0
       ? Math.round((compUsed / compNights.length) * 100)
       : 0;
-  const compPass = compPct >= COMPLIANCE_TARGET_PCT;
 
-  // 履歴最低 SpO2最低（全期間・中立表示用ベースライン。警告ではなく文脈付きで提示）
-  const spo2Nights = cpap.filter((r) => r.spo2Min != null);
-  const baselineNight = spo2Nights.length
-    ? spo2Nights.reduce((m, r) => (r.spo2Min! < m.spo2Min! ? r : m))
-    : null;
-  const baselinePreTreatment =
-    baselineNight != null && parseDateTs(baselineNight.date) < cpapStartTs;
-
-  // MW期（6/11以降）の自動集計
-  const mw = cpap.filter((r) => parseDateTs(r.date) >= MW_START);
+  // 集計ヘルパ（3期間比較の各期間で共有）
   const avg = (vals: (number | null)[]) => {
     const xs = vals.filter((v): v is number => v != null);
     return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
@@ -161,9 +164,21 @@ export default function SummaryTab({
     const xs = vals.filter((v): v is number => v != null);
     return xs.length ? Math.min(...xs) : null;
   };
+
+  // MW期（6/11以降）の自動集計
+  const mw = cpap.filter((r) => parseDateTs(r.date) >= MW_START);
   const mwSpo2Avg = avg(mw.map((r) => r.spo2Avg));
   const mwSpo2Min = min(mw.map((r) => r.spo2Min));
   const mwRhr = avg(mw.map((r) => r.rhr));
+
+  // [修正4] 直近7日間（最新レコード日から遡って7日・有効夜のみ）。集計方法はMW期と同一。
+  const recent7StartTs = latestTs - RECENT7_DAYS * DAY_MS;
+  const recent7 = cpap.filter(
+    (r) => parseDateTs(r.date) >= recent7StartTs && isValidNight(r)
+  );
+  const r7Spo2Avg = avg(recent7.map((r) => r.spo2Avg));
+  const r7Spo2Min = min(recent7.map((r) => r.spo2Min));
+  const r7Rhr = avg(recent7.map((r) => r.rhr));
 
   return (
     <div className="space-y-6">
@@ -230,127 +245,100 @@ export default function SummaryTab({
         </div>
       )}
 
-      {/* 履歴最低 SpO2最低（中立表示・ベースライン） */}
-      {baselineNight && baselineNight.spo2Min != null && (
-        <div className="rounded-xl border border-gray-800 bg-[#161616] p-3 text-sm">
-          <span className="text-gray-400">履歴最低 SpO2最低：</span>
-          <span className="font-semibold text-gray-100">
-            {baselineNight.spo2Min}%
-          </span>
-          <span className="text-gray-500">
-            （{baselineNight.date}
-            {baselinePreTreatment ? "・治療前ベースライン" : ""}）
-          </span>
-          <p className="mt-1 text-xs text-gray-600">
-            ※ SpO2最低の日次値は24時間値であり、睡眠中限定ではありません。
-          </p>
-        </div>
-      )}
-
-      {/* 最新夜サマリー */}
+      {/* [修正5] 最新有効夜のフル評価カード */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">
-          最新の夜：{latest.date}
-          {latest.sleepBand && (
-            <span className="ml-2 text-gray-500">
-              （{withNightTz(latest.sleepBand, latest.tz)}）
-            </span>
-          )}
-        </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <StatCard
-            label="Seal"
-            value={latest.seal}
-            level={levelSeal(latest.seal)}
-            format={fmtInt}
-            info={METRIC_INFO.seal}
+        {latestValid ? (
+          <>
+            <h2 className="mb-1 text-sm font-semibold text-gray-300">
+              最新有効夜 {latestValid.date}
+              {latestValid.sleepBand && (
+                <span className="ml-2 text-gray-500">
+                  （{withNightTz(latestValid.sleepBand, latestValid.tz)}）
+                </span>
+              )}
+            </h2>
+            {latestIsInvalid && (
+              <p className="mb-2 text-[11px] text-gray-600">
+                ※ 最新記録 {latest.date} は無効夜（総睡眠&lt;4h
+                または段階記録なし）のため、直近の有効夜を表示しています。
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <NightMetric
+                label="Seal"
+                value={latestValid.seal}
+                level={levelSeal(latestValid.seal)}
+                format={fmtInt}
+                desc="マスクの密閉度。CPAPの効きを左右する最重要指標。"
+              />
+              <NightMetric
+                label="Events/hr"
+                value={latestValid.events}
+                level={levelEvents(latestValid.events)}
+                format={fmt1}
+                desc="1時間あたりの無呼吸・低呼吸。低いほど良い。"
+              />
+              <NightMetric
+                label="深睡眠"
+                value={latestValid.deepSleep}
+                unit="分"
+                level={levelDeepSleep(latestValid.deepSleep)}
+                format={fmtInt}
+                desc="深い睡眠の絶対時間。割合でなく分で見る。"
+              />
+              <NightMetric
+                label="総睡眠"
+                value={latestValid.totalSleep}
+                unit="h"
+                level={levelTotalSleep(latestValid.totalSleep)}
+                format={fmt1}
+                desc="覚醒を除く睡眠合計。4h未満は無効夜。"
+              />
+              <NightMetric
+                label="SpO2平均"
+                value={latestValid.spo2Avg}
+                unit="%"
+                level="none"
+                format={fmt1}
+                desc="睡眠帯の平均血中酸素。（中立表示）"
+              />
+              <NightMetric
+                label="SpO2最低"
+                value={latestValid.spo2Min}
+                unit="%"
+                level={levelSpo2Min(latestValid.spo2Min)}
+                format={fmtInt}
+                desc="睡眠中に下がった酸素の最低。※日次値は24時間値で睡眠中限定ではない。"
+              />
+              <NightMetric
+                label="睡眠中最低心拍"
+                value={latestValid.minHr}
+                unit="bpm"
+                level="none"
+                format={fmtInt}
+                alert={isBradycardiaAlert(latestValid.minHr)}
+                desc="睡眠中の最低心拍。CPAPの効きに反応。日次RHRとは別物。"
+              />
+              <NightMetric
+                label="日次RHR"
+                value={latestValid.rhr}
+                unit="bpm"
+                level="none"
+                format={fmtInt}
+                desc="24時間ベースの安静時心拍。活動負荷を含み、減量しないと下がりにくい。"
+              />
+            </div>
+          </>
+        ) : (
+          <EmptyState
+            icon="🌙"
+            title="有効夜がまだありません"
+            hint="総睡眠4h以上かつ睡眠段階の記録がある夜が追加されると、最新有効夜のフル評価がここに表示されます。"
           />
-          <StatCard
-            label="Events/hr"
-            value={latest.events}
-            level={levelEvents(latest.events)}
-            format={fmt1}
-            info={METRIC_INFO.events}
-          />
-          <StatCard
-            label="SpO2最低"
-            value={latest.spo2Min}
-            unit="%"
-            level={levelSpo2Min(latest.spo2Min)}
-            format={fmtInt}
-            info={METRIC_INFO.spo2Min}
-          />
-          <StatCard
-            label="睡眠中最低心拍"
-            value={latest.minHr}
-            unit="bpm"
-            level="none"
-            alert={isBradycardiaAlert(latest.minHr)}
-            format={fmtInt}
-            info={METRIC_INFO.minHr}
-          />
-          <StatCard
-            label="深睡眠"
-            value={latest.deepSleep}
-            unit="分"
-            level={levelDeepSleep(latest.deepSleep)}
-            format={fmtInt}
-            info={METRIC_INFO.deepSleep}
-          />
-          <StatCard
-            label="総睡眠"
-            value={latest.totalSleep}
-            unit="h"
-            level={levelTotalSleep(latest.totalSleep)}
-            format={fmt1}
-            info={METRIC_INFO.totalSleep}
-          />
-        </div>
-        <p className="mt-2 text-[11px] text-gray-600">{SPO2_MIN_NOTE}</p>
+        )}
       </section>
 
-      {/* [21] CPAPコンプライアンス（保険要件） */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">
-          CPAPコンプライアンス（保険要件・直近{COMPLIANCE_WINDOW_DAYS}日）
-        </h2>
-        <div
-          className={`rounded-xl border p-4 ${
-            compPass
-              ? "border-emerald-500/40 bg-emerald-500/10"
-              : "border-amber-500/40 bg-amber-500/10"
-          }`}
-        >
-          <div className="flex items-baseline gap-2">
-            <span
-              className={`text-3xl font-bold ${
-                compPass ? "text-emerald-300" : "text-amber-300"
-              }`}
-            >
-              {compPct}%
-            </span>
-            <span className="text-sm text-gray-300">
-              {compUsed}/{compNights.length} 夜が4h以上
-            </span>
-            <span
-              className={`ml-auto rounded-md px-2 py-0.5 text-xs font-semibold ${
-                compPass
-                  ? "bg-emerald-500/20 text-emerald-300"
-                  : "bg-amber-500/20 text-amber-300"
-              }`}
-            >
-              {compPass ? "✅ 達成" : "⚠️ 未達"}（目標{COMPLIANCE_TARGET_PCT}%）
-            </span>
-          </div>
-          <p className="mt-2 text-[11px] text-gray-500">
-            {compReal
-              ? "使用時間(h)列に基づく判定。"
-              : "⚠️ 使用時間(h)列が未投入のため、総睡眠(h)ベースの代理指標で算出（要：myAir使用時間の投入）。"}
-          </p>
-        </div>
-      </section>
-
-      {/* 3期間比較 */}
+      {/* 3期間比較（+ 直近7日間） */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-gray-300">3期間比較</h2>
         <div className="overflow-x-auto rounded-xl border border-gray-800">
@@ -399,11 +387,32 @@ export default function SummaryTab({
                 <PeriodCell>—</PeriodCell>
                 <PeriodCell>—</PeriodCell>
               </tr>
+              {/* [修正4] 直近7日間（有効夜のみ・MW期と同一の集計方法） */}
+              <tr className="bg-emerald-500/5">
+                <td className="px-3 py-2 text-left text-emerald-300">
+                  直近7日間
+                  <span className="ml-1 text-xs text-emerald-500/70">
+                    (有効夜)
+                  </span>
+                  <span className="ml-1 text-xs text-gray-500">
+                    n={recent7.length}
+                  </span>
+                </td>
+                <PeriodCell>
+                  {r7Spo2Avg != null ? `${fmt1(r7Spo2Avg)}%` : "—"}
+                </PeriodCell>
+                <PeriodCell>
+                  {r7Spo2Min != null ? `${fmtInt(r7Spo2Min)}%` : "—"}
+                </PeriodCell>
+                <PeriodCell>{fmt1(r7Rhr)}</PeriodCell>
+                <PeriodCell>—</PeriodCell>
+                <PeriodCell>—</PeriodCell>
+              </tr>
             </tbody>
           </table>
         </div>
         <p className="mt-1 text-xs text-gray-600">
-          ※ MW期はDB-Aから自動計算。HRV・呼吸数はDB-Aに項目がないため「—」。
+          ※ MW期・直近7日間はDB-Aから自動計算（有効夜のみ）。HRV・呼吸数はDB-Aに項目がないため「—」。
         </p>
       </section>
 
@@ -423,6 +432,16 @@ export default function SummaryTab({
           ))}
         </ul>
       </section>
+
+      {/* [21] CPAPコンプライアンス（保険要件・代理値）— 下部に小さく表示。誤用防止の注記を維持。 */}
+      <p className="rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-[11px] text-gray-500">
+        CPAPコンプライアンス{compReal ? "（実測）" : "（代理）"}：
+        <span className="font-semibold text-gray-300">{compPct}%</span>（
+        {compUsed}/{compNights.length}夜が4h以上・直近{COMPLIANCE_WINDOW_DAYS}日）。
+        {compReal
+          ? "使用時間(h)列に基づく判定。"
+          : "総睡眠(h)ベースの代理値。正式な保険要件提示には使用時間(h)列が必要。"}
+      </p>
 
       {/* [29] 運用注記：アプリ内/外の境界 */}
       <p className="rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-[11px] text-gray-500">
