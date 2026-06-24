@@ -62,6 +62,14 @@ export function levelSpo2Min(v: number | null): Level {
   return "red";
 }
 
+/** SpO2平均の評価（参考しきい値）。95以上🟢 / 90-94🟡 / <90🔴 */
+export function levelSpo2Avg(v: number | null): Level {
+  if (v == null) return "none";
+  if (v >= 95) return "green";
+  if (v >= 90) return "yellow";
+  return "red";
+}
+
 /** 睡眠中最低心拍 <40 は緊急（表示のみ・色分けは特別扱い） */
 export function isBradycardiaAlert(v: number | null): boolean {
   return v != null && v < 40;
@@ -150,4 +158,57 @@ export function nightUsedFourHours(r: {
   if (r.totalSleep != null)
     return { used: r.totalSleep >= COMPLIANCE_MIN_HOURS, real: false };
   return { used: false, real: false };
+}
+
+/* ---------- 目安（参考値）。一般的な睡眠科学/健康指標の目安であり、
+   Aki個人の医学的基準でも診断でもない。医学的判断は主治医に委ねる。 ---------- */
+
+/** 各指標の「目安：〜」参考テキスト（深睡眠のみ総睡眠から動的計算するため別扱い）。 */
+export const METRIC_REFERENCE: Record<string, string> = {
+  seal: "目安：20/20（満点が望ましい）",
+  events: "目安：5未満（治療良好域）、0に近いほど良い",
+  totalSleep: "目安：7〜9時間（一般成人の推奨）",
+  spo2Avg: "目安：95%以上が正常域",
+  spo2Min: "目安：90%以上維持",
+  minHr:
+    "参考：睡眠中は安静時より下がるのが通常。自己ベンチマーク（過去の良夜）は約68〜71bpm",
+  rhr: "参考：一般成人の安静時心拍は約60〜100bpm。これは24時間値で活動負荷を含み、減量で下がりやすい指標",
+};
+
+/** 深睡眠の目安レンジ＝総睡眠に対する一般成人の割合の目安（参考値）。 */
+export const DEEP_SLEEP_PCT_MIN = 0.13;
+export const DEEP_SLEEP_PCT_MAX = 0.23;
+
+/**
+ * 当夜の総睡眠から深睡眠の目安レンジ（分）と実績％・レンジ比コメントを算出。
+ * 評価バッジ自体は既存の絶対分しきい値（levelDeepSleep）を使う。これは参考併記用。
+ */
+export function deepSleepGuide(
+  totalSleepHours: number | null,
+  deepSleepMin: number | null
+): { rangeMin: number; rangeMax: number; pct: number | null; rel: string } | null {
+  if (totalSleepHours == null || totalSleepHours <= 0) return null;
+  const totalMin = totalSleepHours * 60;
+  const rangeMin = Math.round(totalMin * DEEP_SLEEP_PCT_MIN);
+  const rangeMax = Math.round(totalMin * DEEP_SLEEP_PCT_MAX);
+  const pct = deepSleepMin != null ? (deepSleepMin / totalMin) * 100 : null;
+  let rel = "";
+  if (deepSleepMin != null) {
+    if (deepSleepMin < rangeMin) rel = "目安レンジのやや下";
+    else if (deepSleepMin > rangeMax) rel = "目安レンジのやや上";
+    else rel = "目安レンジ内";
+  }
+  return { rangeMin, rangeMax, pct, rel };
+}
+
+/** 睡眠中最低心拍の自己ベンチマーク帯（過去の良夜・参考値。医学的目標値ではない）。 */
+export const MINHR_BENCH_LOW = 68;
+export const MINHR_BENCH_HIGH = 71;
+
+/** 当夜の睡眠中最低心拍が自己ベンチ帯のどこかを中立コメントで返す（良否判定ではない）。 */
+export function minHrBenchComment(v: number | null): string {
+  if (v == null) return "";
+  if (v < MINHR_BENCH_LOW) return "自己ベンチより低め";
+  if (v > MINHR_BENCH_HIGH) return "自己ベンチより高め";
+  return "自己ベンチ範囲内";
 }

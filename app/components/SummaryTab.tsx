@@ -12,14 +12,19 @@ import {
 import {
   LEVEL_TEXT,
   LEVEL_BADGE,
+  LEVEL_DOT,
   levelSeal,
   levelEvents,
   levelDeepSleep,
   levelTotalSleep,
   levelSpo2Min,
+  levelSpo2Avg,
   isBradycardiaAlert,
   isValidNight,
   nightUsedFourHours,
+  deepSleepGuide,
+  minHrBenchComment,
+  METRIC_REFERENCE,
   parseDateTs,
   fmtInt,
   fmt1,
@@ -44,7 +49,7 @@ const LEVEL_LABEL: Record<Level, string> = {
   none: "",
 };
 
-/** 最新有効夜のフル評価表示の1項目（値＋評価バッジ＋簡潔な解説）— [修正5] */
+/** 最新有効夜のフル評価表示の1項目（値＋評価バッジ＋解説＋目安/参考）— [修正2/5] */
 function NightMetric({
   label,
   value,
@@ -52,6 +57,8 @@ function NightMetric({
   level,
   format = fmtInt,
   desc,
+  guide,
+  extra,
   alert,
 }: {
   label: string;
@@ -60,6 +67,8 @@ function NightMetric({
   level: Level;
   format?: (v: number | null) => string;
   desc: string;
+  guide?: string; // 「目安：〜」参考行（参考値・医学的目標値ではない）
+  extra?: string; // 追加の中立コメント（自己ベンチ範囲など）
   alert?: boolean; // 🚨（睡眠中最低心拍<40）
 }) {
   const badgeText = alert ? "🚨 緊急" : LEVEL_LABEL[level];
@@ -81,8 +90,15 @@ function NightMetric({
         {unit && <span className="text-sm text-gray-400">{unit}</span>}
       </div>
       <p className="mt-1 text-[11px] text-gray-500">{desc}</p>
+      {guide && <p className="mt-0.5 text-[11px] text-gray-400">{guide}</p>}
+      {extra && <p className="mt-0.5 text-[11px] text-gray-500">{extra}</p>}
     </div>
   );
+}
+
+/** 3期間比較セル：値の後ろに小さな評価ドット（🟢🟡🔴）を併記する。 */
+function levelDot(level: Level): string {
+  return LEVEL_DOT[level] ? ` ${LEVEL_DOT[level]}` : "";
 }
 
 function PeriodCell({ children }: { children: React.ReactNode }) {
@@ -133,11 +149,7 @@ export default function SummaryTab({
   );
   const hasAlert = bradyNights.length > 0 || lowSpo2Nights.length > 0;
 
-  // ⚠️注意：直近窓・有効夜で Seal<8 または Events/hr>15（[13]）
-  const cautionNights = eligibleNights.filter(
-    (r) =>
-      (r.seal != null && r.seal < 8) || (r.events != null && r.events > 15)
-  );
+  // [修正1] 「直近の注意」走査バナーはサマリーから非表示（走査ロジックは将来戻せるよう関数として温存）。
 
   // ⚠️データ欠落：最新レコード日が現在地TZの今日から ALERT_GAP_DAYS 日以上離れている（[12]）
   const latestDateStr = latest.date;
@@ -179,6 +191,15 @@ export default function SummaryTab({
   const r7Spo2Avg = avg(recent7.map((r) => r.spo2Avg));
   const r7Spo2Min = min(recent7.map((r) => r.spo2Min));
   const r7Rhr = avg(recent7.map((r) => r.rhr));
+  // [修正3] 日次RHRは良否でなくMW期比の傾向（↑↓→と差）で示す
+  const r7RhrDiffMw =
+    r7Rhr != null && mwRhr != null ? r7Rhr - mwRhr : null;
+  const rhrTrend =
+    r7RhrDiffMw == null
+      ? null
+      : `MW期比 ${
+          r7RhrDiffMw > 0.05 ? "↑" : r7RhrDiffMw < -0.05 ? "↓" : "→"
+        }${fmt1(Math.abs(r7RhrDiffMw))}`;
 
   return (
     <div className="space-y-6">
@@ -217,33 +238,7 @@ export default function SummaryTab({
         </div>
       )}
 
-      {/* [13] 直近の注意（有効夜・Seal<8 / Events>15） */}
-      {cautionNights.length > 0 && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-          <div className="flex items-center gap-2 text-amber-300">
-            <span>⚠️</span>
-            <span className="font-bold">
-              直近の注意（直近{ALERT_WINDOW_DAYS}日・有効夜）
-            </span>
-          </div>
-          <ul className="mt-2 space-y-1 text-sm text-amber-200">
-            {cautionNights.map((r) => (
-              <li key={r.date}>
-                {r.date}：
-                {r.seal != null && r.seal < 8 && `Seal ${fmtInt(r.seal)}（<8）`}
-                {r.seal != null &&
-                  r.seal < 8 &&
-                  r.events != null &&
-                  r.events > 15 &&
-                  " / "}
-                {r.events != null &&
-                  r.events > 15 &&
-                  `Events/hr ${fmt1(r.events)}（>15）`}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* [修正1] 「直近の注意」バナーは非表示（走査ロジックは温存） */}
 
       {/* [修正5] 最新有効夜のフル評価カード */}
       <section>
@@ -270,6 +265,7 @@ export default function SummaryTab({
                 level={levelSeal(latestValid.seal)}
                 format={fmtInt}
                 desc="マスクの密閉度。CPAPの効きを左右する最重要指標。"
+                guide={METRIC_REFERENCE.seal}
               />
               <NightMetric
                 label="Events/hr"
@@ -277,15 +273,33 @@ export default function SummaryTab({
                 level={levelEvents(latestValid.events)}
                 format={fmt1}
                 desc="1時間あたりの無呼吸・低呼吸。低いほど良い。"
+                guide={METRIC_REFERENCE.events}
               />
-              <NightMetric
-                label="深睡眠"
-                value={latestValid.deepSleep}
-                unit="分"
-                level={levelDeepSleep(latestValid.deepSleep)}
-                format={fmtInt}
-                desc="深い睡眠の絶対時間。割合でなく分で見る。"
-              />
+              {(() => {
+                const g = deepSleepGuide(
+                  latestValid.totalSleep,
+                  latestValid.deepSleep
+                );
+                const guide = g
+                  ? `目安：総睡眠の約13〜23%（=この夜なら約${g.rangeMin}〜${g.rangeMax}分）` +
+                    (latestValid.deepSleep != null && g.pct != null
+                      ? `／実績：${fmtInt(latestValid.deepSleep)}分（${g.pct.toFixed(
+                          1
+                        )}%・${g.rel}）`
+                      : "")
+                  : "目安：総睡眠の約13〜23%";
+                return (
+                  <NightMetric
+                    label="深睡眠"
+                    value={latestValid.deepSleep}
+                    unit="分"
+                    level={levelDeepSleep(latestValid.deepSleep)}
+                    format={fmtInt}
+                    desc="深い睡眠の絶対時間。割合でなく分で見る。"
+                    guide={guide}
+                  />
+                );
+              })()}
               <NightMetric
                 label="総睡眠"
                 value={latestValid.totalSleep}
@@ -293,14 +307,16 @@ export default function SummaryTab({
                 level={levelTotalSleep(latestValid.totalSleep)}
                 format={fmt1}
                 desc="覚醒を除く睡眠合計。4h未満は無効夜。"
+                guide={METRIC_REFERENCE.totalSleep}
               />
               <NightMetric
                 label="SpO2平均"
                 value={latestValid.spo2Avg}
                 unit="%"
-                level="none"
+                level={levelSpo2Avg(latestValid.spo2Avg)}
                 format={fmt1}
-                desc="睡眠帯の平均血中酸素。（中立表示）"
+                desc="睡眠帯の平均血中酸素。"
+                guide={METRIC_REFERENCE.spo2Avg}
               />
               <NightMetric
                 label="SpO2最低"
@@ -309,6 +325,7 @@ export default function SummaryTab({
                 level={levelSpo2Min(latestValid.spo2Min)}
                 format={fmtInt}
                 desc="睡眠中に下がった酸素の最低。※日次値は24時間値で睡眠中限定ではない。"
+                guide={METRIC_REFERENCE.spo2Min}
               />
               <NightMetric
                 label="睡眠中最低心拍"
@@ -318,6 +335,14 @@ export default function SummaryTab({
                 format={fmtInt}
                 alert={isBradycardiaAlert(latestValid.minHr)}
                 desc="睡眠中の最低心拍。CPAPの効きに反応。日次RHRとは別物。"
+                guide={METRIC_REFERENCE.minHr}
+                extra={
+                  latestValid.minHr != null
+                    ? `当夜 ${fmtInt(latestValid.minHr)}bpm（${minHrBenchComment(
+                        latestValid.minHr
+                      )}・参考）`
+                    : undefined
+                }
               />
               <NightMetric
                 label="日次RHR"
@@ -326,8 +351,12 @@ export default function SummaryTab({
                 level="none"
                 format={fmtInt}
                 desc="24時間ベースの安静時心拍。活動負荷を含み、減量しないと下がりにくい。"
+                guide={METRIC_REFERENCE.rhr}
               />
             </div>
+            <p className="mt-2 text-[11px] text-gray-600">
+              ※ 上記の「目安／参考」は一般的な睡眠科学・健康指標の参考値であり、Aki個人の医学的基準・診断ではありません。医学的判断は主治医（相馬先生）に委ねてください。
+            </p>
           </>
         ) : (
           <EmptyState
@@ -399,12 +428,21 @@ export default function SummaryTab({
                   </span>
                 </td>
                 <PeriodCell>
-                  {r7Spo2Avg != null ? `${fmt1(r7Spo2Avg)}%` : "—"}
+                  {r7Spo2Avg != null
+                    ? `${fmt1(r7Spo2Avg)}%${levelDot(levelSpo2Avg(r7Spo2Avg))}`
+                    : "—"}
                 </PeriodCell>
                 <PeriodCell>
-                  {r7Spo2Min != null ? `${fmtInt(r7Spo2Min)}%` : "—"}
+                  {r7Spo2Min != null
+                    ? `${fmtInt(r7Spo2Min)}%${levelDot(levelSpo2Min(r7Spo2Min))}`
+                    : "—"}
                 </PeriodCell>
-                <PeriodCell>{fmt1(r7Rhr)}</PeriodCell>
+                <PeriodCell>
+                  <div>{fmt1(r7Rhr)}</div>
+                  {rhrTrend && (
+                    <div className="text-[10px] text-gray-500">{rhrTrend}</div>
+                  )}
+                </PeriodCell>
                 <PeriodCell>—</PeriodCell>
                 <PeriodCell>—</PeriodCell>
               </tr>
