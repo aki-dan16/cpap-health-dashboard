@@ -61,6 +61,9 @@ export const PERIOD_BASELINES: PeriodBaseline[] = [
   },
 ];
 
+/* ---------- CPAP機器パラメータ（OSCAR圧力解析用） ---------- */
+export const CPAP_PRESSURE_MAX = 15; // APAP上限(cmH2O)。圧力95の余裕算出に使用
+
 /* ---------- [14] マスク期バンド ---------- */
 export const MASK_BANDS: {
   label: string;

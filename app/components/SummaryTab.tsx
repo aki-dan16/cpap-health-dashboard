@@ -2,7 +2,7 @@
 
 import type { CpapRow, MedicationEntry } from "@/lib/types";
 import EmptyState from "./EmptyState";
-import { PERIOD_BASELINES, NEXT_TASKS } from "@/lib/constants";
+import { PERIOD_BASELINES, NEXT_TASKS, CPAP_PRESSURE_MAX } from "@/lib/constants";
 import { dupixentSchedule } from "@/lib/medication";
 import {
   withNightTz,
@@ -233,6 +233,10 @@ export default function SummaryTab({
   const rdiEst = latestValid
     ? rdiEstimate(latestValid.oscarAhi, reraPerHr)
     : null;
+  const press95Margin =
+    latestValid?.press95 != null
+      ? CPAP_PRESSURE_MAX - latestValid.press95
+      : null;
 
   return (
     <div className="space-y-6">
@@ -402,6 +406,12 @@ export default function SummaryTab({
                 level={oscarAhiBadge(latestValid.oscarAhi)}
                 format={fmt1}
                 desc="OSCAR実測のAHI。機内蔵Events/hrと並べて対照用。"
+                guide="目安：5未満＝治療良好域。0に近いほど良い。"
+                extra={
+                  latestValid.oscarAhi != null
+                    ? `当夜：${fmt1(latestValid.oscarAhi)}/h（バッジ評価に対応）`
+                    : "当夜：—"
+                }
               />
               <NightMetric
                 label="CA(中枢)"
@@ -410,6 +420,15 @@ export default function SummaryTab({
                 format={fmtInt}
                 suffix={caiPerHr != null ? `(=${caiPerHr.toFixed(1)}/h)` : undefined}
                 desc="中枢性無呼吸イベント数（OSCAR実測）。"
+                guide="目安：CAI 5/h未満＝問題域外（5以上で治療誘発性中枢無呼吸の目安）。"
+                extra={
+                  latestValid.ca != null
+                    ? `当夜：${fmtInt(latestValid.ca)}回` +
+                      (caiPerHr != null
+                        ? ` ＝ ${caiPerHr.toFixed(1)}/h（バッジ評価に対応）`
+                        : "")
+                    : "当夜：—"
+                }
               />
               <NightMetric
                 label="RERA"
@@ -419,10 +438,17 @@ export default function SummaryTab({
                 suffix={
                   reraPerHr != null ? `(=${reraPerHr.toFixed(1)}/h)` : undefined
                 }
-                extra={
-                  latestValid.rera != null ? "RDI寄与・推定" : undefined
-                }
                 desc="呼吸努力関連覚醒の回数（OSCAR実測）。"
+                guide="目安：RERA単独の確立基準はない。RDI(推定)に合算して評価する。"
+                extra={
+                  latestValid.rera != null
+                    ? `当夜：${fmtInt(latestValid.rera)}回` +
+                      (reraPerHr != null ? ` ＝ ${reraPerHr.toFixed(1)}/h` : "") +
+                      (rdiEst != null
+                        ? ` → RDI(推定) ${rdiEst.toFixed(1)}/h（5超で境界・推定）`
+                        : "")
+                    : "当夜：—"
+                }
               />
               <NightMetric
                 label="圧力95"
@@ -430,10 +456,13 @@ export default function SummaryTab({
                 unit="cmH2O"
                 level={press95Badge(latestValid.press95)}
                 format={fmt1}
-                extra={
-                  latestValid.press95 != null ? "機器設定" : undefined
-                }
                 desc="圧力の95パーセンタイル値（OSCAR実測）。"
+                guide={`目安：APAP上限${CPAP_PRESSURE_MAX}に対し余裕があるほど良い（上限張り付き＝圧不足の兆候）。`}
+                extra={
+                  press95Margin != null
+                    ? `当夜：上限まで ${press95Margin.toFixed(1)}（余裕あり/なしはバッジに対応）。※機器設定の妥当性であり臨床評価ではない。`
+                    : "当夜：—"
+                }
               />
             </div>
             {rdiEst != null && (
