@@ -212,3 +212,47 @@ export function minHrBenchComment(v: number | null): string {
   if (v > MINHR_BENCH_HIGH) return "自己ベンチより高め";
   return "自己ベンチ範囲内";
 }
+
+/* ---------- OSCAR実測（DB-A拡張列）の評価・換算 ----------
+   評価しきい値の根拠が確立しているもの（AHI/CAI）だけ色を付け、
+   根拠が弱いもの（RERA/RDI）は推定ラベルにとどめ色は付けない。 */
+
+/** AHI(OSCAR)の評価。既存Events/hrと同一しきい値を流用（重複実装しない）。 */
+export const oscarAhiBadge = levelEvents;
+
+/** CAI（中枢性無呼吸指数・/h換算後）の評価。5未満🟢 / 5-10未満🟡 / 10以上🔴 */
+export function caiBadge(caiPerHr: number | null): Level {
+  if (caiPerHr == null) return "none";
+  if (caiPerHr < 5) return "green";
+  if (caiPerHr < 10) return "yellow";
+  return "red";
+}
+
+/**
+ * 圧力95の評価。APAP上限15cmH2Oに対する余裕＝機器設定の妥当性の評価であり、臨床評価ではない。
+ * 13未満🟢 / 13-14.8未満🟡 / 14.8以上🔴
+ */
+export function press95Badge(v: number | null): Level {
+  if (v == null) return "none";
+  if (v < 13) return "green";
+  if (v < 14.8) return "yellow";
+  return "red";
+}
+
+/** 生カウント（回）を総睡眠(h)で /h 換算する。totalSleepHが無い/0ならnull。 */
+export function perHour(
+  count: number | null,
+  totalSleepH: number | null
+): number | null {
+  if (count == null || totalSleepH == null || totalSleepH <= 0) return null;
+  return count / totalSleepH;
+}
+
+/** RDI(推定) = AHI(OSCAR) + RERA/h。いずれかが無ければnull（推定値・確立した臨床指標ではない）。 */
+export function rdiEstimate(
+  oscarAhi: number | null,
+  reraPerHr: number | null
+): number | null {
+  if (oscarAhi == null || reraPerHr == null) return null;
+  return oscarAhi + reraPerHr;
+}

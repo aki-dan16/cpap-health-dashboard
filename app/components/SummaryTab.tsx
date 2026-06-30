@@ -26,6 +26,11 @@ import {
   deepSleepGuide,
   minHrBenchComment,
   METRIC_REFERENCE,
+  oscarAhiBadge,
+  caiBadge,
+  press95Badge,
+  perHour,
+  rdiEstimate,
   parseDateTs,
   fmtInt,
   fmt1,
@@ -60,6 +65,7 @@ function NightMetric({
   desc,
   guide,
   extra,
+  suffix,
   alert,
 }: {
   label: string;
@@ -70,6 +76,7 @@ function NightMetric({
   desc: string;
   guide?: string; // 「目安：〜」参考行（参考値・医学的目標値ではない）
   extra?: string; // 追加の中立コメント（自己ベンチ範囲など）
+  suffix?: string; // 値の右に小さく添える換算表記（例：(=0.8/h)）
   alert?: boolean; // 🚨（睡眠中最低心拍<40）
 }) {
   const badgeText = alert ? "🚨 緊急" : LEVEL_LABEL[level];
@@ -86,9 +93,12 @@ function NightMetric({
           </span>
         )}
       </div>
-      <div className={`mt-1 flex items-baseline gap-1 ${LEVEL_TEXT[level]}`}>
+      <div
+        className={`mt-1 flex flex-wrap items-baseline gap-1 ${LEVEL_TEXT[level]}`}
+      >
         <span className="text-2xl font-bold">{format(value)}</span>
         {unit && <span className="text-sm text-gray-400">{unit}</span>}
+        {suffix && <span className="text-xs text-gray-500">{suffix}</span>}
       </div>
       <p className="mt-1 text-[11px] text-gray-500">{desc}</p>
       {guide && <p className="mt-0.5 text-[11px] text-gray-400">{guide}</p>}
@@ -210,6 +220,17 @@ export default function SummaryTab({
     lastDupixent?.nextDue != null
       ? diffDaysIso(lastDupixent.nextDue, todayStr)
       : null;
+
+  // [OSCAR] CA/RERAの/h換算とRDI(推定)。総睡眠(h)は最新有効夜カードと同じフィールドを流用。
+  const caiPerHr = latestValid
+    ? perHour(latestValid.ca, latestValid.totalSleep)
+    : null;
+  const reraPerHr = latestValid
+    ? perHour(latestValid.rera, latestValid.totalSleep)
+    : null;
+  const rdiEst = latestValid
+    ? rdiEstimate(latestValid.oscarAhi, reraPerHr)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -376,15 +397,16 @@ export default function SummaryTab({
               <NightMetric
                 label="AHI(OSCAR)"
                 value={latestValid.oscarAhi}
-                level="none"
+                level={oscarAhiBadge(latestValid.oscarAhi)}
                 format={fmt1}
                 desc="OSCAR実測のAHI。機内蔵Events/hrと並べて対照用。"
               />
               <NightMetric
                 label="CA(中枢)"
                 value={latestValid.ca}
-                level="none"
+                level={caiPerHr != null ? caiBadge(caiPerHr) : "none"}
                 format={fmtInt}
+                suffix={caiPerHr != null ? `(=${caiPerHr.toFixed(1)}/h)` : undefined}
                 desc="中枢性無呼吸イベント数（OSCAR実測）。"
               />
               <NightMetric
@@ -392,17 +414,34 @@ export default function SummaryTab({
                 value={latestValid.rera}
                 level="none"
                 format={fmtInt}
+                suffix={
+                  reraPerHr != null ? `(=${reraPerHr.toFixed(1)}/h)` : undefined
+                }
+                extra={
+                  latestValid.rera != null ? "RDI寄与・推定" : undefined
+                }
                 desc="呼吸努力関連覚醒の回数（OSCAR実測）。"
               />
               <NightMetric
                 label="圧力95"
                 value={latestValid.press95}
                 unit="cmH2O"
-                level="none"
+                level={press95Badge(latestValid.press95)}
                 format={fmt1}
+                extra={
+                  latestValid.press95 != null ? "機器設定" : undefined
+                }
                 desc="圧力の95パーセンタイル値（OSCAR実測）。"
               />
             </div>
+            {rdiEst != null && (
+              <p className="mt-2 text-[11px] text-gray-500">
+                RDI(推定) ≈ {rdiEst.toFixed(1)}/h　AHI＋RERA/h・5超で境界（推定）
+              </p>
+            )}
+            <p className="mt-1 text-[11px] text-gray-600">
+              評価基準：AHI・CAI＝確立した一般目安／RERA・RDI＝推定／圧力95＝機器設定の妥当性（臨床評価ではない）。医療判断は主治医。
+            </p>
 
             {/* [投薬] 直近のDupixent記録。データが無ければ非表示 */}
             {lastDupixent && (
