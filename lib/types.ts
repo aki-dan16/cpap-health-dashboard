@@ -18,6 +18,14 @@ export interface CpapRow {
   hrv: number | null; // HRV(ms) [22]
   respRate: number | null; // 呼吸数 [22]
   position: string | null; // 体位 [25]
+  // --- OSCAR実測列（列が無い/未投入の夜は null） ---
+  oscarAhi: number | null; // AHI(OSCAR)
+  ca: number | null; // CA(中枢)
+  rera: number | null; // RERA
+  press95: number | null; // 圧力95(cmH2O)
+  oa: number | null; // OA(閉塞)
+  ua: number | null; // UA(未分類)
+  h: number | null; // H(低呼吸)
 }
 
 export interface BloodRow {

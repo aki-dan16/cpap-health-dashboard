@@ -10,15 +10,7 @@ import {
 } from "@/lib/constants";
 import type { MedicationEntry } from "@/lib/types";
 import { todayInTz, diffDaysIso, type LocationTz } from "@/lib/tz";
-
-function isDupixent(drug: string | null): boolean {
-  return drug != null && /dupixent|デュピクセント/i.test(drug);
-}
-
-/** 日付降順（getMedicationLog の返り値の順）の中から、次回予定が入った最新の1件を返す */
-function latestNextDue(entries: MedicationEntry[]): MedicationEntry | null {
-  return entries.find((e) => e.nextDue != null) ?? null;
-}
+import { nextUpcomingMedication } from "@/lib/medication";
 
 export default function MedTab({
   medication = [],
@@ -28,11 +20,10 @@ export default function MedTab({
   locTz?: LocationTz;
 }) {
   const todayStr = todayInTz(locTz, new Date());
-  const dupixentNext = latestNextDue(medication.filter((e) => isDupixent(e.drug)));
-  const dupixentDiff =
-    dupixentNext?.nextDue != null
-      ? diffDaysIso(dupixentNext.nextDue, todayStr)
-      : null;
+  // [次回投薬予定] 薬剤を問わず直近未来日を1件（無ければ直近ログの予定を「要更新」として表示）
+  const nextDue = nextUpcomingMedication(medication, todayStr);
+  const nextDueDiff =
+    nextDue?.nextDue != null ? diffDaysIso(nextDue.nextDue, todayStr) : null;
 
   return (
     <div className="space-y-6">
@@ -81,35 +72,38 @@ export default function MedTab({
       <section>
         <h2 className="mb-3 text-sm font-semibold text-gray-300">💉 投薬ログ</h2>
 
-        {dupixentNext?.nextDue && (
+        {nextDue?.nextDue && (
           <div
             className={`mb-3 rounded-xl border p-4 ${
-              dupixentDiff != null && dupixentDiff < 0
+              nextDueDiff != null && nextDueDiff < 0
                 ? "border-red-500/40 bg-red-500/10"
                 : "border-sky-500/40 bg-sky-500/10"
             }`}
           >
             <div className="flex items-center gap-2 text-gray-300">
               <span className="text-lg">💉</span>
-              <span className="font-bold">次回予定（Dupixent）</span>
+              <span className="font-bold">次回投薬予定</span>
             </div>
             <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-gray-100">
-                {dupixentNext.nextDue}
+              <span className="text-base font-semibold text-gray-200">
+                {nextDue.drug ?? "薬剤未設定"}
               </span>
-              {dupixentDiff != null && (
+              <span className="text-2xl font-bold text-gray-100">
+                {nextDue.nextDue}
+              </span>
+              {nextDueDiff != null && (
                 <span
                   className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
-                    dupixentDiff < 0
+                    nextDueDiff < 0
                       ? "bg-red-500/20 text-red-300"
                       : "bg-sky-500/20 text-sky-300"
                   }`}
                 >
-                  {dupixentDiff < 0
-                    ? `⚠️ 要更新（${Math.abs(dupixentDiff)}日超過）`
-                    : dupixentDiff === 0
+                  {nextDueDiff < 0
+                    ? `⚠️ 要更新（${Math.abs(nextDueDiff)}日超過）`
+                    : nextDueDiff === 0
                       ? "本日"
-                      : `あと${dupixentDiff}日`}
+                      : `あと${nextDueDiff}日`}
                 </span>
               )}
             </div>

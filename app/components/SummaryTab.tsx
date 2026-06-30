@@ -3,6 +3,7 @@
 import type { CpapRow, MedicationEntry } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import { PERIOD_BASELINES, NEXT_TASKS } from "@/lib/constants";
+import { isDupixent, latestEntryByDrug } from "@/lib/medication";
 import {
   withNightTz,
   todayInTz,
@@ -105,27 +106,6 @@ function PeriodCell({ children }: { children: React.ReactNode }) {
   return <td className="px-3 py-2 text-center text-gray-200">{children}</td>;
 }
 
-/**
- * 投薬ログの中から「直近未来日」の次回予定を1件選ぶ。
- * 該当が無ければ（全て過去日）直近にログされた予定を「要更新」として返す。
- * entries は日付（ログ日）降順を前提（getMedicationLog の返り値）。
- */
-function nextMedication(
-  entries: MedicationEntry[],
-  todayStr: string
-): MedicationEntry | null {
-  const withDue = entries.filter((e) => e.nextDue != null);
-  if (withDue.length === 0) return null;
-  const upcoming = withDue
-    .filter((e) => diffDaysIso(e.nextDue as string, todayStr) >= 0)
-    .sort(
-      (a, b) =>
-        diffDaysIso(a.nextDue as string, todayStr) -
-        diffDaysIso(b.nextDue as string, todayStr)
-    );
-  return upcoming[0] ?? withDue[0];
-}
-
 export default function SummaryTab({
   cpap,
   medication = [],
@@ -224,10 +204,12 @@ export default function SummaryTab({
           r7RhrDiffMw > 0.05 ? "↑" : r7RhrDiffMw < -0.05 ? "↓" : "→"
         }${fmt1(Math.abs(r7RhrDiffMw))}`;
 
-  // [投薬] 次回投薬予定（直近未来日を1件。無ければ直近ログの予定を「要更新」として表示）
-  const nextMed = nextMedication(medication, todayStr);
-  const nextMedDiff =
-    nextMed?.nextDue != null ? diffDaysIso(nextMed.nextDue, todayStr) : null;
+  // [投薬] 最新有効夜カードの「投薬」行用：直近のDupixent記録（最終注射日／次回予定）
+  const lastDupixent = latestEntryByDrug(medication, isDupixent);
+  const dupixentDiff =
+    lastDupixent?.nextDue != null
+      ? diffDaysIso(lastDupixent.nextDue, todayStr)
+      : null;
 
   return (
     <div className="space-y-6">
@@ -385,6 +367,75 @@ export default function SummaryTab({
             <p className="mt-2 text-[11px] text-gray-600">
               ※ 上記の「目安／参考」は一般的な睡眠科学・健康指標の参考値であり、Aki個人の医学的基準・診断ではありません。医学的判断は主治医（相馬先生）に委ねてください。
             </p>
+
+            {/* [OSCAR] デバイス実測（DB-A拡張列。未投入の夜は「—」） */}
+            <h3 className="mb-2 mt-4 text-xs font-semibold text-gray-400">
+              OSCAR（デバイス実測）
+            </h3>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <NightMetric
+                label="AHI(OSCAR)"
+                value={latestValid.oscarAhi}
+                level="none"
+                format={fmt1}
+                desc="OSCAR実測のAHI。機内蔵Events/hrと並べて対照用。"
+              />
+              <NightMetric
+                label="CA(中枢)"
+                value={latestValid.ca}
+                level="none"
+                format={fmtInt}
+                desc="中枢性無呼吸イベント数（OSCAR実測）。"
+              />
+              <NightMetric
+                label="RERA"
+                value={latestValid.rera}
+                level="none"
+                format={fmtInt}
+                desc="呼吸努力関連覚醒の回数（OSCAR実測）。"
+              />
+              <NightMetric
+                label="圧力95"
+                value={latestValid.press95}
+                unit="cmH2O"
+                level="none"
+                format={fmt1}
+                desc="圧力の95パーセンタイル値（OSCAR実測）。"
+              />
+            </div>
+
+            {/* [投薬] 直近のDupixent記録。データが無ければ非表示 */}
+            {lastDupixent && (
+              <div className="mt-3 rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-xs">
+                <span className="text-gray-400">💉 投薬（Dupixent）：</span>
+                <span className="text-gray-200">
+                  最終注射 {lastDupixent.date}
+                </span>
+                {lastDupixent.nextDue && (
+                  <>
+                    <span className="text-gray-500"> ／ 次回 </span>
+                    <span className="text-gray-200">
+                      {lastDupixent.nextDue}
+                    </span>
+                    {dupixentDiff != null && (
+                      <span
+                        className={`ml-2 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                          dupixentDiff < 0
+                            ? "bg-red-500/20 text-red-300"
+                            : "bg-sky-500/20 text-sky-300"
+                        }`}
+                      >
+                        {dupixentDiff < 0
+                          ? "⚠️ 要更新"
+                          : dupixentDiff === 0
+                            ? "本日"
+                            : `あと${dupixentDiff}日`}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <EmptyState
@@ -481,44 +532,6 @@ export default function SummaryTab({
           ※ MW期・直近7日間はDB-Aから自動計算（有効夜のみ）。HRV・呼吸数はDB-Aに項目がないため「—」。
         </p>
       </section>
-
-      {/* [投薬] 次回投薬予定（Notion D. 投薬ログ DB。未設定/未投入時は非表示） */}
-      {nextMed?.nextDue && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold text-gray-300">
-            💉 次回投薬予定
-          </h2>
-          <div
-            className={`rounded-xl border p-4 ${
-              nextMedDiff != null && nextMedDiff < 0
-                ? "border-red-500/40 bg-red-500/10"
-                : "border-sky-500/40 bg-sky-500/10"
-            }`}
-          >
-            <div className="flex items-baseline gap-2">
-              <span className="text-lg font-bold text-gray-100">
-                {nextMed.drug ?? "薬剤未設定"}
-              </span>
-              <span className="text-sm text-gray-300">{nextMed.nextDue}</span>
-              {nextMedDiff != null && (
-                <span
-                  className={`ml-auto rounded-md px-2 py-0.5 text-xs font-semibold ${
-                    nextMedDiff < 0
-                      ? "bg-red-500/20 text-red-300"
-                      : "bg-sky-500/20 text-sky-300"
-                  }`}
-                >
-                  {nextMedDiff < 0
-                    ? "⚠️ 要更新"
-                    : nextMedDiff === 0
-                      ? "本日"
-                      : `あと${nextMedDiff}日`}
-                </span>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* 次回タスク・通院 */}
       <section>

@@ -43,6 +43,14 @@ export async function GET() {
       hrv: getNumber(p["HRV(ms)"]),
       respRate: getNumber(p["呼吸数"]),
       position: getSelect(p["体位"]),
+      // OSCAR実測列：列が無い/未投入の夜は null（防御的）
+      oscarAhi: getNumber(p["AHI(OSCAR)"]),
+      ca: getNumber(p["CA(中枢)"]),
+      rera: getNumber(p["RERA"]),
+      press95: getNumber(p["圧力95(cmH2O)"]),
+      oa: getNumber(p["OA(閉塞)"]),
+      ua: getNumber(p["UA(未分類)"]),
+      h: getNumber(p["H(低呼吸)"]),
     }));
 
     // 日付昇順
