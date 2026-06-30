@@ -136,6 +136,19 @@ export const NEXT_TASKS: string[] = [
   "📦 マスクS→MW交換（8月Coastal 808-545-2500）",
 ];
 
+/* ---------- D. 投薬ログ DB ID（env。実値は各自で .env.local / Vercel に設定） ---------- */
+export const MEDICATION_DB_ID = process.env.NOTION_MEDICATION_DB_ID;
+
+/* ---------- 投薬ログ：薬剤バッジ色 ---------- */
+export const MED_BADGE_COLOR: Record<string, string> = {
+  Dupixent: "bg-sky-500/15 text-sky-300 border border-sky-500/30",
+  デュピクセント: "bg-sky-500/15 text-sky-300 border border-sky-500/30",
+  Zepbound: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+  リベルサス: "bg-orange-500/15 text-orange-300 border border-orange-500/30",
+};
+export const MED_BADGE_COLOR_DEFAULT =
+  "bg-gray-700/40 text-gray-200 border border-gray-600/40";
+
 /* ---------- [36] 指標ツールチップ説明 ---------- */
 export const METRIC_INFO: Record<string, string> = {
   seal: "Seal＝マスクの密閉スコア。高いほどリークが少なく有効。≥12🟢 / 8-11🟡 / <8🔴",

@@ -43,6 +43,16 @@ export interface WeightRow {
   memo: string;
 }
 
+/** D. 投薬ログ（注射・投薬記録） */
+export interface MedicationEntry {
+  date: string;
+  drug: string | null; // 薬剤名（Dupixent / Zepbound / リベルサス 等）
+  dose: string; // 用量
+  site: string | null; // 投与部位
+  nextDue: string | null; // 次回予定日（YYYY-MM-DD）
+  memo: string;
+}
+
 export interface ApiResponse<T> {
   rows: T[];
   error?: string;

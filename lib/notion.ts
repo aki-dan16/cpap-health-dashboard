@@ -1,4 +1,6 @@
 import { Client } from "@notionhq/client";
+import { parseDateTs } from "@/lib/health";
+import type { MedicationEntry } from "@/lib/types";
 
 /**
  * Notion API v5（@notionhq/client 5.x）対応。
@@ -130,4 +132,31 @@ export function getNumber(prop: AnyProp): number | null {
 
 export function getSelect(prop: AnyProp): string | null {
   return (prop as { select?: { name: string } | null })?.select?.name ?? null;
+}
+
+/** date プロパティの開始日を YYYY-MM-DD で返す（時刻付きISOでも日付部のみに正規化）。 */
+export function getDate(prop: AnyProp): string | null {
+  const start = (prop as { date?: { start?: string | null } | null })?.date
+    ?.start;
+  return start ? start.slice(0, 10) : null;
+}
+
+/**
+ * D. 投薬ログ DB を取得し、日付降順（最新が先頭）で返す。
+ * NOTION_MEDICATION_DB_ID 未設定時の呼び出し可否は呼び出し元（API Route）が判定する。
+ */
+export async function getMedicationLog(
+  databaseId: string
+): Promise<MedicationEntry[]> {
+  const props = await queryAllRows(databaseId);
+  const rows: MedicationEntry[] = props.map((p) => ({
+    date: getTitle(p["日付"]),
+    drug: getSelect(p["薬剤"]),
+    dose: getText(p["用量"]),
+    site: getSelect(p["部位"]),
+    nextDue: getDate(p["次回予定"]),
+    memo: getText(p["メモ"]),
+  }));
+  rows.sort((a, b) => parseDateTs(b.date) - parseDateTs(a.date));
+  return rows;
 }

@@ -9,7 +9,13 @@ import BloodTab from "./components/BloodTab";
 import WeightTab from "./components/WeightTab";
 import MedTab from "./components/MedTab";
 import ErrorBoundary from "./components/ErrorBoundary";
-import type { ApiResponse, CpapRow, BloodRow, WeightRow } from "@/lib/types";
+import type {
+  ApiResponse,
+  CpapRow,
+  BloodRow,
+  WeightRow,
+  MedicationEntry,
+} from "@/lib/types";
 import {
   type LocationTz,
   LOCATION_OPTIONS,
@@ -28,6 +34,7 @@ export default function Home() {
   const [cpap, setCpap] = useState<CpapRow[]>([]);
   const [blood, setBlood] = useState<BloodRow[]>([]);
   const [weight, setWeight] = useState<WeightRow[]>([]);
+  const [medication, setMedication] = useState<MedicationEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -47,15 +54,19 @@ export default function Home() {
   // [28] Notionから最新データを取得（初回＆手動リフレッシュ共通）
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [c, b, w] = await Promise.all([
+    const [c, b, w, m] = await Promise.all([
       fetchRows<CpapRow>("/api/cpap"),
       fetchRows<BloodRow>("/api/blood"),
       fetchRows<WeightRow>("/api/weight"),
+      fetchRows<MedicationEntry>("/api/medication"),
     ]);
     setCpap(c.rows);
     setBlood(b.rows);
     setWeight(w.rows);
-    setErrors([c.error, b.error, w.error].filter(Boolean) as string[]);
+    setMedication(m.rows);
+    setErrors(
+      [c.error, b.error, w.error, m.error].filter(Boolean) as string[]
+    );
     setUpdatedAt(new Date());
     setLoading(false);
   }, []);
@@ -132,7 +143,9 @@ export default function Home() {
           </div>
         ) : (
           <ErrorBoundary label={active} key={active}>
-            {active === "summary" && <SummaryTab cpap={cpap} locTz={locTz} />}
+            {active === "summary" && (
+              <SummaryTab cpap={cpap} medication={medication} locTz={locTz} />
+            )}
             {active === "trend" && (
               <TrendTab cpap={cpap} bloodDates={blood.map((b) => b.date)} />
             )}
@@ -141,7 +154,9 @@ export default function Home() {
             {active === "weight" && (
               <WeightTab weight={weight} blood={blood} />
             )}
-            {active === "med" && <MedTab />}
+            {active === "med" && (
+              <MedTab medication={medication} locTz={locTz} />
+            )}
           </ErrorBoundary>
         )}
       </main>

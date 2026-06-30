@@ -1,6 +1,6 @@
 "use client";
 
-import type { CpapRow } from "@/lib/types";
+import type { CpapRow, MedicationEntry } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import { PERIOD_BASELINES, NEXT_TASKS } from "@/lib/constants";
 import {
@@ -105,11 +105,34 @@ function PeriodCell({ children }: { children: React.ReactNode }) {
   return <td className="px-3 py-2 text-center text-gray-200">{children}</td>;
 }
 
+/**
+ * 投薬ログの中から「直近未来日」の次回予定を1件選ぶ。
+ * 該当が無ければ（全て過去日）直近にログされた予定を「要更新」として返す。
+ * entries は日付（ログ日）降順を前提（getMedicationLog の返り値）。
+ */
+function nextMedication(
+  entries: MedicationEntry[],
+  todayStr: string
+): MedicationEntry | null {
+  const withDue = entries.filter((e) => e.nextDue != null);
+  if (withDue.length === 0) return null;
+  const upcoming = withDue
+    .filter((e) => diffDaysIso(e.nextDue as string, todayStr) >= 0)
+    .sort(
+      (a, b) =>
+        diffDaysIso(a.nextDue as string, todayStr) -
+        diffDaysIso(b.nextDue as string, todayStr)
+    );
+  return upcoming[0] ?? withDue[0];
+}
+
 export default function SummaryTab({
   cpap,
+  medication = [],
   locTz = "HST",
 }: {
   cpap: CpapRow[];
+  medication?: MedicationEntry[];
   locTz?: LocationTz;
 }) {
   if (cpap.length === 0) {
@@ -200,6 +223,11 @@ export default function SummaryTab({
       : `MW期比 ${
           r7RhrDiffMw > 0.05 ? "↑" : r7RhrDiffMw < -0.05 ? "↓" : "→"
         }${fmt1(Math.abs(r7RhrDiffMw))}`;
+
+  // [投薬] 次回投薬予定（直近未来日を1件。無ければ直近ログの予定を「要更新」として表示）
+  const nextMed = nextMedication(medication, todayStr);
+  const nextMedDiff =
+    nextMed?.nextDue != null ? diffDaysIso(nextMed.nextDue, todayStr) : null;
 
   return (
     <div className="space-y-6">
@@ -453,6 +481,44 @@ export default function SummaryTab({
           ※ MW期・直近7日間はDB-Aから自動計算（有効夜のみ）。HRV・呼吸数はDB-Aに項目がないため「—」。
         </p>
       </section>
+
+      {/* [投薬] 次回投薬予定（Notion D. 投薬ログ DB。未設定/未投入時は非表示） */}
+      {nextMed?.nextDue && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-gray-300">
+            💉 次回投薬予定
+          </h2>
+          <div
+            className={`rounded-xl border p-4 ${
+              nextMedDiff != null && nextMedDiff < 0
+                ? "border-red-500/40 bg-red-500/10"
+                : "border-sky-500/40 bg-sky-500/10"
+            }`}
+          >
+            <div className="flex items-baseline gap-2">
+              <span className="text-lg font-bold text-gray-100">
+                {nextMed.drug ?? "薬剤未設定"}
+              </span>
+              <span className="text-sm text-gray-300">{nextMed.nextDue}</span>
+              {nextMedDiff != null && (
+                <span
+                  className={`ml-auto rounded-md px-2 py-0.5 text-xs font-semibold ${
+                    nextMedDiff < 0
+                      ? "bg-red-500/20 text-red-300"
+                      : "bg-sky-500/20 text-sky-300"
+                  }`}
+                >
+                  {nextMedDiff < 0
+                    ? "⚠️ 要更新"
+                    : nextMedDiff === 0
+                      ? "本日"
+                      : `あと${nextMedDiff}日`}
+                </span>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* 次回タスク・通院 */}
       <section>
