@@ -149,6 +149,15 @@ export const MED_BADGE_COLOR: Record<string, string> = {
 export const MED_BADGE_COLOR_DEFAULT =
   "bg-gray-700/40 text-gray-200 border border-gray-600/40";
 
+/* ---------- Dupixent 運用パラメータ（3周期スケジュール算出用） ----------
+   実注射(3週)・供給/処方ペース(2週)・Walgreens電話(月1)はそれぞれ性質が異なるため、
+   サマリーでは別ラベルで併記する（lib/medication.ts の dupixentSchedule が使用）。 */
+export const DUPIXENT_ACTUAL_INTERVAL_DAYS = 21; // 本人運用・実注射（3週）
+export const DUPIXENT_SUPPLY_INTERVAL_DAYS = 14; // 供給/処方上（2週・2本/月）
+export const DUPIXENT_CALL_INTERVAL_DAYS = 28; // Walgreens電話・月1
+export const DUPIXENT_CALL_TO_DELIVERY_LAG_DAYS = 4; // 電話→受取ラグ
+export const DUPIXENT_LAST_CALL_DATE = "2026-05-29"; // 直近電話の起点（実データ2点・5/1,5/29から28日と推定）
+
 /* ---------- [36] 指標ツールチップ説明 ---------- */
 export const METRIC_INFO: Record<string, string> = {
   seal: "Seal＝マスクの密閉スコア。高いほどリークが少なく有効。≥12🟢 / 8-11🟡 / <8🔴",

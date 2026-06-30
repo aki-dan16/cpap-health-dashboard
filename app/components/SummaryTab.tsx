@@ -3,7 +3,7 @@
 import type { CpapRow, MedicationEntry } from "@/lib/types";
 import EmptyState from "./EmptyState";
 import { PERIOD_BASELINES, NEXT_TASKS } from "@/lib/constants";
-import { isDupixent, latestEntryByDrug } from "@/lib/medication";
+import { dupixentSchedule } from "@/lib/medication";
 import {
   withNightTz,
   todayInTz,
@@ -112,6 +112,12 @@ function levelDot(level: Level): string {
   return LEVEL_DOT[level] ? ` ${LEVEL_DOT[level]}` : "";
 }
 
+/** ISO日付（YYYY-MM-DD）を「M/D」表記にする（Dupixentスケジュール表示用）。 */
+function mdFormat(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${Number(m)}/${Number(d)}`;
+}
+
 function PeriodCell({ children }: { children: React.ReactNode }) {
   return <td className="px-3 py-2 text-center text-gray-200">{children}</td>;
 }
@@ -214,12 +220,8 @@ export default function SummaryTab({
           r7RhrDiffMw > 0.05 ? "↑" : r7RhrDiffMw < -0.05 ? "↓" : "→"
         }${fmt1(Math.abs(r7RhrDiffMw))}`;
 
-  // [投薬] 最新有効夜カードの「投薬」行用：直近のDupixent記録（最終注射日／次回予定）
-  const lastDupixent = latestEntryByDrug(medication, isDupixent);
-  const dupixentDiff =
-    lastDupixent?.nextDue != null
-      ? diffDaysIso(lastDupixent.nextDue, todayStr)
-      : null;
+  // [投薬] 最新有効夜カードの「投薬」行用：Dupixentの3周期スケジュール（実注射/供給ペース/電話予測）
+  const dupixent = dupixentSchedule(medication, todayStr);
 
   // [OSCAR] CA/RERAの/h換算とRDI(推定)。総睡眠(h)は最新有効夜カードと同じフィールドを流用。
   const caiPerHr = latestValid
@@ -443,38 +445,41 @@ export default function SummaryTab({
               評価基準：AHI・CAI＝確立した一般目安／RERA・RDI＝推定／圧力95＝機器設定の妥当性（臨床評価ではない）。医療判断は主治医。
             </p>
 
-            {/* [投薬] 直近のDupixent記録。データが無ければ非表示 */}
-            {lastDupixent && (
-              <div className="mt-3 rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-xs">
-                <span className="text-gray-400">💉 投薬（Dupixent）：</span>
-                <span className="text-gray-200">
-                  最終注射 {lastDupixent.date}
-                </span>
-                {lastDupixent.nextDue && (
-                  <>
-                    <span className="text-gray-500"> ／ 次回 </span>
+            {/* [投薬] Dupixent 3周期スケジュール（実注射/供給ペース/電話予測）。最終注射が無ければ非表示 */}
+            {dupixent.lastInjection &&
+              dupixent.actualNext &&
+              dupixent.supplyNext &&
+              dupixent.nextCall &&
+              dupixent.delivery && (
+                <div className="mt-3 rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-xs">
+                  <div className="font-semibold text-gray-300">
+                    💉 Dupixent
+                  </div>
+                  <div className="mt-1 text-gray-500">
+                    最終注射：
                     <span className="text-gray-200">
-                      {lastDupixent.nextDue}
+                      {mdFormat(dupixent.lastInjection)}
                     </span>
-                    {dupixentDiff != null && (
-                      <span
-                        className={`ml-2 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-                          dupixentDiff < 0
-                            ? "bg-red-500/20 text-red-300"
-                            : "bg-sky-500/20 text-sky-300"
-                        }`}
-                      >
-                        {dupixentDiff < 0
-                          ? "⚠️ 要更新"
-                          : dupixentDiff === 0
-                            ? "本日"
-                            : `あと${dupixentDiff}日`}
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
+                  </div>
+                  <div className="mt-0.5 text-sky-300">
+                    実・次回(3週)：
+                    <span className="text-sm font-semibold">
+                      {mdFormat(dupixent.actualNext)}
+                    </span>
+                    <span className="ml-1 text-[11px] text-sky-400/80">
+                      （推定・本人運用）
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-gray-500">
+                    供給上(2週)：{mdFormat(dupixent.supplyNext)}
+                    （処方ペース）
+                  </div>
+                  <div className="mt-0.5 text-gray-500">
+                    次回電話(予測)：{mdFormat(dupixent.nextCall)}頃 → 受取
+                    {mdFormat(dupixent.delivery)}頃（月1・推定）
+                  </div>
+                </div>
+              )}
           </>
         ) : (
           <EmptyState
