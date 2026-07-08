@@ -80,10 +80,10 @@ export default function Home() {
       <header className="mb-2 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-100 sm:text-2xl">
-            🫁 CPAP Health Dashboard
+            🫁 Sleep Dashboard
           </h1>
           <p className="text-xs text-gray-500">
-            CPAP・血液検査・体重の統合モニタリング
+            睡眠・血液検査・体重の統合モニタリング
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-xs text-gray-400">

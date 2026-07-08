@@ -11,8 +11,8 @@ const notoSansJp = Noto_Sans_JP({
 });
 
 export const metadata: Metadata = {
-  title: "CPAP Health Dashboard",
-  description: "CPAP治療・血液検査・体重の統合ヘルスダッシュボード",
+  title: "Sleep Dashboard",
+  description: "睡眠・血液検査・体重の統合ヘルスダッシュボード",
 };
 
 // [layout] モバイル/PWA(standalone)で正しい幅に描画させる。未指定だとSafariが

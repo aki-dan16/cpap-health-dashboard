@@ -7,7 +7,7 @@ export interface TabDef {
 
 export const TABS: TabDef[] = [
   { key: "summary", label: "🏠 サマリー" },
-  { key: "trend", label: "📈 CPAPトレンド" },
+  { key: "trend", label: "📈 睡眠トレンド" },
   { key: "history", label: "📋 全履歴" },
   { key: "blood", label: "🩸 血液検査" },
   { key: "weight", label: "⚖️ 体重・DXA" },

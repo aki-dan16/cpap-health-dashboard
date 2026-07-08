@@ -1,7 +1,7 @@
 import { safeNextPath } from "@/lib/auth";
 
 export const metadata = {
-  title: "ログイン｜CPAP Health Dashboard",
+  title: "ログイン｜Sleep Dashboard",
 };
 
 /**
@@ -21,7 +21,7 @@ export default async function LoginPage({
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#161616] p-8 shadow-xl">
-        <h1 className="text-lg font-medium text-gray-100">CPAP Health Dashboard</h1>
+        <h1 className="text-lg font-medium text-gray-100">Sleep Dashboard</h1>
         <p className="mt-1 text-sm text-gray-400">パスワードを入力してください</p>
 
         <form method="POST" action="/api/login" name="login" className="mt-6 space-y-4">

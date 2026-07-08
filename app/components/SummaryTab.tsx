@@ -135,7 +135,7 @@ export default function SummaryTab({
     return (
       <EmptyState
         icon="🌙"
-        title="CPAPデータがありません"
+        title="睡眠データがありません"
         hint="Notion DB-A（CPAP夜ログ）に夜の記録を追加すると、最新夜サマリーとアラートがここに表示されます。"
       />
     );
