@@ -2,8 +2,17 @@
 
 import type { CpapRow, MedicationEntry } from "@/lib/types";
 import EmptyState from "./EmptyState";
-import { PERIOD_BASELINES, NEXT_TASKS, CPAP_PRESSURE_MAX } from "@/lib/constants";
+import { NEXT_TASKS, CPAP_PRESSURE_MAX } from "@/lib/constants";
 import { dupixentSchedule } from "@/lib/medication";
+import {
+  SLEEP_PERIODS,
+  aggregate,
+  nightsInPeriod,
+  currentPeriodKey,
+  monthlyGroups,
+  type SleepPeriod,
+  type Agg,
+} from "@/lib/periods";
 import {
   withNightTz,
   todayInTz,
@@ -38,11 +47,9 @@ import {
   type Level,
 } from "@/lib/health";
 
-const MW_START = parseDateTs("2025-06-11");
-
 // アラートの走査条件（変更しやすいようここに集約）— [10]
 const ALERT_WINDOW_DAYS = 7; // 走査窓。7 / 14 / 30 で切替可（直近7日基準）
-const RECENT7_DAYS = 7; // [修正4] 3期間比較の「直近7日間」行の集計窓
+const RECENT7_DAYS = 7; // 直近7日ローリングパネルの集計窓
 const CPAP_START = "2026-05-01"; // 治療開始日。これより前は警告対象外
 const ALERT_GAP_DAYS = 3; // データ欠落アラート閾値（[12]）
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -118,8 +125,107 @@ function mdFormat(iso: string): string {
   return `${Number(m)}/${Number(d)}`;
 }
 
-function PeriodCell({ children }: { children: React.ReactNode }) {
-  return <td className="px-3 py-2 text-center text-gray-200">{children}</td>;
+/* ---------- 比較パネル共通の指標カラム定義（3パネルで共有） ----------
+   formatter/level は lib/health 由来（表示層の責務のためここに置く）。
+   staticKey がある指標は SleepPeriod.staticValues（外部集計値）を優先表示できる。 */
+interface MetricCol {
+  key: keyof CpapRow;
+  label: string;
+  agg: Agg;
+  fmt: (v: number | null) => string;
+  unit?: string;
+  level?: (v: number | null) => Level; // 省略時は中立（バッジなし）
+  staticKey?: "spo2Avg" | "spo2Min" | "rhr" | "hrv"; // 外部集計値の対応キー
+}
+
+const COMPARE_METRICS: MetricCol[] = [
+  { key: "spo2Avg", label: "SpO2平均", agg: "avg", fmt: fmt1, unit: "%", level: levelSpo2Avg, staticKey: "spo2Avg" },
+  { key: "spo2Min", label: "SpO2最低", agg: "min", fmt: fmtInt, unit: "%", level: levelSpo2Min, staticKey: "spo2Min" },
+  { key: "events", label: "Events/hr", agg: "avg", fmt: fmt1, level: levelEvents },
+  { key: "deepSleep", label: "深睡眠", agg: "avg", fmt: fmtInt, unit: "分", level: levelDeepSleep },
+  { key: "minHr", label: "睡眠中最低心拍", agg: "avg", fmt: fmtInt, unit: "bpm" },
+  { key: "rhr", label: "日次RHR", agg: "avg", fmt: fmtInt, unit: "bpm", staticKey: "rhr" },
+  { key: "hrv", label: "HRV", agg: "avg", fmt: fmtInt, unit: "ms", staticKey: "hrv" },
+];
+
+// 月次パネル末尾の追加列：OSCAR実測AHIの月平均（デバイス真値・報告用）。
+const MONTHLY_EXTRA: MetricCol = {
+  key: "oscarAhi",
+  label: "AHI(OSCAR)",
+  agg: "avg",
+  fmt: fmt1,
+  level: oscarAhiBadge,
+};
+
+/** 1指標セルの表示内容（静的な外部集計値か、DB-Aからの集計か）を組み立てる。 */
+function metricCellText(
+  col: MetricCol,
+  rows: CpapRow[],
+  staticValues?: SleepPeriod["staticValues"],
+  muted = false // excluded期間はバッジ（基準強調）を付けない
+): string {
+  const sv = col.staticKey ? staticValues?.[col.staticKey] : undefined;
+  if (sv) return sv; // 外部集計値はそのまま（バッジなし）
+  const v = aggregate(rows, col.key, col.agg);
+  if (v == null) return "—";
+  const base = `${col.fmt(v)}${col.unit ?? ""}`;
+  const dot = !muted && col.level ? levelDot(col.level(v)) : "";
+  return `${base}${dot}`;
+}
+
+/** 比較テーブルのヘッダ行（期間ラベル列＋指標列）。 */
+function MetricHeader({
+  firstCol,
+  cols,
+}: {
+  firstCol: string;
+  cols: MetricCol[];
+}) {
+  return (
+    <thead className="bg-[#1a1a1a] text-gray-400">
+      <tr>
+        <th className="px-3 py-2 text-left">{firstCol}</th>
+        {cols.map((c) => (
+          <th key={c.key} className="px-3 py-2 whitespace-nowrap">
+            {c.label}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+/** 比較テーブルの1データ行（指標カラムをまとめて描画）。 */
+function MetricRow({
+  labelCell,
+  rows,
+  cols,
+  staticValues,
+  muted = false,
+  rowClass = "",
+}: {
+  labelCell: React.ReactNode;
+  rows: CpapRow[];
+  cols: MetricCol[];
+  staticValues?: SleepPeriod["staticValues"];
+  muted?: boolean;
+  rowClass?: string;
+}) {
+  return (
+    <tr className={rowClass}>
+      <td className="px-3 py-2 text-left">{labelCell}</td>
+      {cols.map((c) => (
+        <td
+          key={c.key}
+          className={`px-3 py-2 text-center whitespace-nowrap ${
+            muted ? "text-gray-500" : "text-gray-200"
+          }`}
+        >
+          {metricCellText(c, rows, staticValues, muted)}
+        </td>
+      ))}
+    </tr>
+  );
 }
 
 export default function SummaryTab({
@@ -186,39 +292,15 @@ export default function SummaryTab({
       ? Math.round((compUsed / compNights.length) * 100)
       : 0;
 
-  // 集計ヘルパ（3期間比較の各期間で共有）
-  const avg = (vals: (number | null)[]) => {
-    const xs = vals.filter((v): v is number => v != null);
-    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
-  };
-  const min = (vals: (number | null)[]) => {
-    const xs = vals.filter((v): v is number => v != null);
-    return xs.length ? Math.min(...xs) : null;
-  };
-
-  // MW期（6/11以降）の自動集計
-  const mw = cpap.filter((r) => parseDateTs(r.date) >= MW_START);
-  const mwSpo2Avg = avg(mw.map((r) => r.spo2Avg));
-  const mwSpo2Min = min(mw.map((r) => r.spo2Min));
-  const mwRhr = avg(mw.map((r) => r.rhr));
-
-  // [修正4] 直近7日間（最新レコード日から遡って7日・有効夜のみ）。集計方法はMW期と同一。
+  // [パネルB] 直近7日ローリング（最新レコード日から7日窓・有効夜のみ）。常設。
   const recent7StartTs = latestTs - RECENT7_DAYS * DAY_MS;
   const recent7 = cpap.filter(
     (r) => parseDateTs(r.date) >= recent7StartTs && isValidNight(r)
   );
-  const r7Spo2Avg = avg(recent7.map((r) => r.spo2Avg));
-  const r7Spo2Min = min(recent7.map((r) => r.spo2Min));
-  const r7Rhr = avg(recent7.map((r) => r.rhr));
-  // [修正3] 日次RHRは良否でなくMW期比の傾向（↑↓→と差）で示す
-  const r7RhrDiffMw =
-    r7Rhr != null && mwRhr != null ? r7Rhr - mwRhr : null;
-  const rhrTrend =
-    r7RhrDiffMw == null
-      ? null
-      : `MW期比 ${
-          r7RhrDiffMw > 0.05 ? "↑" : r7RhrDiffMw < -0.05 ? "↓" : "→"
-        }${fmt1(Math.abs(r7RhrDiffMw))}`;
+
+  // [パネルA/C] 現在強調する期間キー、月次グループ（カレンダー月・有効夜のみ・昇順）。
+  const currentKey = currentPeriodKey(cpap);
+  const months = monthlyGroups(cpap);
 
   // [投薬] 最新有効夜カードの「投薬」行用：Dupixentの3周期スケジュール（実注射/供給ペース/電話予測）
   const dupixent = dupixentSchedule(medication, todayStr);
@@ -543,90 +625,141 @@ export default function SummaryTab({
         )}
       </section>
 
-      {/* 3期間比較（+ 直近7日間） */}
+      {/* パネルA：期間比較（条件イベント区切り・config駆動） */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">3期間比較</h2>
+        <h2 className="mb-3 text-sm font-semibold text-gray-300">
+          期間比較（条件区切り）
+        </h2>
         <div className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="w-full min-w-[560px] text-sm">
-            <thead className="bg-[#1a1a1a] text-gray-400">
-              <tr>
-                <th className="px-3 py-2 text-left">期間</th>
-                <th className="px-3 py-2">SpO2平均</th>
-                <th className="px-3 py-2">SpO2最低</th>
-                <th className="px-3 py-2">日次RHR</th>
-                <th className="px-3 py-2">HRV</th>
-                <th className="px-3 py-2">呼吸数</th>
-              </tr>
-            </thead>
+          <table className="w-full min-w-[720px] text-sm">
+            <MetricHeader firstCol="期間" cols={COMPARE_METRICS} />
             <tbody className="divide-y divide-gray-800">
-              {PERIOD_BASELINES.map((p) => (
-                <tr key={p.label} className="bg-[#141414]">
-                  <td className="px-3 py-2 text-left text-gray-300">
-                    {p.label}
-                    <span className="ml-1 text-xs text-gray-500">
-                      ({p.range})
-                    </span>
-                  </td>
-                  <PeriodCell>{p.spo2Avg}</PeriodCell>
-                  <PeriodCell>{p.spo2Min}</PeriodCell>
-                  <PeriodCell>{p.rhr}</PeriodCell>
-                  <PeriodCell>{p.hrv}</PeriodCell>
-                  <PeriodCell>{p.resp}</PeriodCell>
-                </tr>
-              ))}
-              <tr className="bg-sky-500/5">
-                <td className="px-3 py-2 text-left text-sky-300">
-                  MW期
-                  <span className="ml-1 text-xs text-sky-500/70">(6/11-)</span>
-                  <span className="ml-1 text-xs text-gray-500">
-                    n={mw.length}
-                  </span>
-                </td>
-                <PeriodCell>
-                  {mwSpo2Avg != null ? `${fmt1(mwSpo2Avg)}%` : "—"}
-                </PeriodCell>
-                <PeriodCell>
-                  {mwSpo2Min != null ? `${fmtInt(mwSpo2Min)}%` : "—"}
-                </PeriodCell>
-                <PeriodCell>{fmt1(mwRhr)}</PeriodCell>
-                <PeriodCell>—</PeriodCell>
-                <PeriodCell>—</PeriodCell>
-              </tr>
-              {/* [修正4] 直近7日間（有効夜のみ・MW期と同一の集計方法） */}
-              <tr className="bg-emerald-500/5">
-                <td className="px-3 py-2 text-left text-emerald-300">
-                  直近7日間
-                  <span className="ml-1 text-xs text-emerald-500/70">
-                    (有効夜)
-                  </span>
-                  <span className="ml-1 text-xs text-gray-500">
-                    n={recent7.length}
-                  </span>
-                </td>
-                <PeriodCell>
-                  {r7Spo2Avg != null
-                    ? `${fmt1(r7Spo2Avg)}%${levelDot(levelSpo2Avg(r7Spo2Avg))}`
-                    : "—"}
-                </PeriodCell>
-                <PeriodCell>
-                  {r7Spo2Min != null
-                    ? `${fmtInt(r7Spo2Min)}%${levelDot(levelSpo2Min(r7Spo2Min))}`
-                    : "—"}
-                </PeriodCell>
-                <PeriodCell>
-                  <div>{fmt1(r7Rhr)}</div>
-                  {rhrTrend && (
-                    <div className="text-[10px] text-gray-500">{rhrTrend}</div>
-                  )}
-                </PeriodCell>
-                <PeriodCell>—</PeriodCell>
-                <PeriodCell>—</PeriodCell>
-              </tr>
+              {SLEEP_PERIODS.map((p) => {
+                const isStatic = p.staticValues != null;
+                const rows = isStatic ? [] : nightsInPeriod(cpap, p);
+                const isCurrent = p.key === currentKey;
+                const rowClass = p.excluded
+                  ? "bg-[#141414] opacity-60"
+                  : isCurrent
+                    ? "bg-sky-500/10 ring-1 ring-inset ring-sky-500/40"
+                    : "bg-[#141414]";
+                return (
+                  <MetricRow
+                    key={p.key}
+                    rows={rows}
+                    cols={COMPARE_METRICS}
+                    staticValues={p.staticValues}
+                    muted={p.excluded}
+                    rowClass={rowClass}
+                    labelCell={
+                      <span
+                        className={
+                          p.excluded
+                            ? "text-gray-500"
+                            : isCurrent
+                              ? "text-sky-300"
+                              : "text-gray-300"
+                        }
+                      >
+                        {p.excluded && "⚠️ "}
+                        {p.label}
+                        {isCurrent && (
+                          <span className="ml-1 rounded bg-sky-500/20 px-1 text-[10px] text-sky-300">
+                            現在
+                          </span>
+                        )}
+                        <span className="ml-1 block text-[10px] text-gray-500">
+                          {p.excluded
+                            ? "異常/除外"
+                            : isStatic
+                              ? "外部集計"
+                              : `n=${rows.length}`}
+                        </span>
+                      </span>
+                    }
+                  />
+                );
+              })}
             </tbody>
           </table>
         </div>
         <p className="mt-1 text-xs text-gray-600">
-          ※ MW期・直近7日間はDB-Aから自動計算（有効夜のみ）。HRV・呼吸数はDB-Aに項目がないため「—」。
+          ※ 治療条件が変わったイベントで区間を区切り、各区間はDB-Aから自動集計（有効夜のみ）。CPAP前・S期は外部集計ベースライン。旅行(異常)は基準強調に使いません。HRV等はDB-A未投入だと「—」。
+        </p>
+      </section>
+
+      {/* パネルB：直近7日ローリング（常設・条件区切りとは独立） */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-gray-300">
+          直近7日間（有効夜）
+        </h2>
+        <div className="overflow-x-auto rounded-xl border border-gray-800">
+          <table className="w-full min-w-[720px] text-sm">
+            <MetricHeader firstCol="期間" cols={COMPARE_METRICS} />
+            <tbody className="divide-y divide-gray-800">
+              <MetricRow
+                rows={recent7}
+                cols={COMPARE_METRICS}
+                rowClass="bg-emerald-500/5"
+                labelCell={
+                  <span className="text-emerald-300">
+                    直近7日間
+                    <span className="ml-1 block text-[10px] text-gray-500">
+                      最新記録日基準・n={recent7.length}
+                    </span>
+                  </span>
+                }
+              />
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-1 text-xs text-gray-600">
+          ※ 最新レコード日から遡って7日間の有効夜を集計。「今、良くなっているか」を早く見るための枠です。
+        </p>
+      </section>
+
+      {/* パネルC：月次（カレンダー月） */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-gray-300">月次</h2>
+        <div className="overflow-x-auto rounded-xl border border-gray-800">
+          <table className="w-full min-w-[800px] text-sm">
+            <MetricHeader
+              firstCol="月"
+              cols={[...COMPARE_METRICS, MONTHLY_EXTRA]}
+            />
+            <tbody className="divide-y divide-gray-800">
+              {months.length === 0 ? (
+                <tr className="bg-[#141414]">
+                  <td
+                    colSpan={COMPARE_METRICS.length + 2}
+                    className="px-3 py-3 text-center text-gray-500"
+                  >
+                    —
+                  </td>
+                </tr>
+              ) : (
+                months.map((m) => (
+                  <MetricRow
+                    key={m.month}
+                    rows={m.rows}
+                    cols={[...COMPARE_METRICS, MONTHLY_EXTRA]}
+                    rowClass="bg-[#141414]"
+                    labelCell={
+                      <span className="text-gray-300">
+                        {m.month}
+                        <span className="ml-1 block text-[10px] text-gray-500">
+                          n={m.rows.length}
+                        </span>
+                      </span>
+                    }
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-1 text-xs text-gray-600">
+          ※ カレンダー月ごとの平均（有効夜のみ）。長期の地合い・報告用。AHI(OSCAR)はOSCAR実測がある夜のみ月平均。月次コンプライアンスは下部の直近{COMPLIANCE_WINDOW_DAYS}日表示と定義が二重化するためここには出しません。
         </p>
       </section>
 
