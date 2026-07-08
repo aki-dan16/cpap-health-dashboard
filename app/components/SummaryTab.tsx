@@ -223,19 +223,35 @@ export default function SummaryTab({
   // [投薬] 最新有効夜カードの「投薬」行用：Dupixentの3周期スケジュール（実注射/供給ペース/電話予測）
   const dupixent = dupixentSchedule(medication, todayStr);
 
-  // [OSCAR] CA/RERAの/h換算とRDI(推定)。総睡眠(h)は最新有効夜カードと同じフィールドを流用。
-  const caiPerHr = latestValid
-    ? perHour(latestValid.ca, latestValid.totalSleep)
+  // [OSCAR] 表示（display）のみのフォールバック。DB-Aの各夜レコードは一切変更しない。
+  // 表示中の夜(latestValid)にOSCAR実測が無ければ、DB-A全体から代表列(AHI(OSCAR))が
+  // non-nullな最新の夜を日付降順で動的に検索し、日付ラベル付きでスナップショット表示する。
+  const hasOwnOscar = latestValid?.oscarAhi != null;
+  const latestOscarNight: CpapRow | null = hasOwnOscar
+    ? null
+    : [...cpap]
+        .sort((a, b) => parseDateTs(b.date) - parseDateTs(a.date))
+        .find((r) => r.oscarAhi != null) ?? null;
+  const oscarNight: CpapRow | null = hasOwnOscar
+    ? latestValid
+    : latestOscarNight;
+  const oscarIsFallback = !hasOwnOscar && oscarNight != null;
+  // 各カードの微小ラベル：フォールバック時は「当夜」と誤認させないよう「実測」表記にする。
+  const oscarValueLabel = oscarIsFallback ? "実測" : "当夜";
+
+  // CA/RERAの/h換算とRDI(推定)。総睡眠(h)はoscarNight（表示対象の夜）自身の値を使う。
+  const caiPerHr = oscarNight
+    ? perHour(oscarNight.ca, oscarNight.totalSleep)
     : null;
-  const reraPerHr = latestValid
-    ? perHour(latestValid.rera, latestValid.totalSleep)
+  const reraPerHr = oscarNight
+    ? perHour(oscarNight.rera, oscarNight.totalSleep)
     : null;
-  const rdiEst = latestValid
-    ? rdiEstimate(latestValid.oscarAhi, reraPerHr)
+  const rdiEst = oscarNight
+    ? rdiEstimate(oscarNight.oscarAhi, reraPerHr)
     : null;
   const press95Margin =
-    latestValid?.press95 != null
-      ? CPAP_PRESSURE_MAX - latestValid.press95
+    oscarNight?.press95 != null
+      ? CPAP_PRESSURE_MAX - oscarNight.press95
       : null;
 
   return (
@@ -395,44 +411,52 @@ export default function SummaryTab({
               ※ 上記の「目安／参考」は一般的な睡眠科学・健康指標の参考値であり、Aki個人の医学的基準・診断ではありません。医学的判断は主治医（相馬先生）に委ねてください。
             </p>
 
-            {/* [OSCAR] デバイス実測（DB-A拡張列。未投入の夜は「—」） */}
-            <h3 className="mb-2 mt-4 text-xs font-semibold text-gray-400">
-              OSCAR（デバイス実測）
+            {/* [OSCAR] デバイス実測（DB-A拡張列）。当夜に未投入ならDB-A全体から
+                直近の実測夜を検索し、日付ラベル付きでスナップショット表示する（表示のみ・書き込みなし）。 */}
+            <h3 className="mb-1 mt-4 text-xs font-semibold text-gray-400">
+              {oscarIsFallback && oscarNight
+                ? `最新OSCAR（${oscarNight.date}時点）`
+                : "当夜のOSCAR"}
             </h3>
+            {oscarIsFallback && (
+              <p className="mb-2 text-[11px] text-amber-500/80">
+                ※この夜のOSCARは未取得。直近の実測値を表示しています。
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <NightMetric
                 label="AHI(OSCAR)"
-                value={latestValid.oscarAhi}
-                level={oscarAhiBadge(latestValid.oscarAhi)}
+                value={oscarNight?.oscarAhi ?? null}
+                level={oscarAhiBadge(oscarNight?.oscarAhi ?? null)}
                 format={fmt1}
                 desc="OSCAR実測のAHI。機内蔵Events/hrと並べて対照用。"
                 guide="目安：5未満＝治療良好域。0に近いほど良い。"
                 extra={
-                  latestValid.oscarAhi != null
-                    ? `当夜：${fmt1(latestValid.oscarAhi)}/h（バッジ評価に対応）`
-                    : "当夜：—"
+                  oscarNight?.oscarAhi != null
+                    ? `${oscarValueLabel}：${fmt1(oscarNight.oscarAhi)}/h（バッジ評価に対応）`
+                    : `${oscarValueLabel}：—`
                 }
               />
               <NightMetric
                 label="CA(中枢)"
-                value={latestValid.ca}
+                value={oscarNight?.ca ?? null}
                 level={caiPerHr != null ? caiBadge(caiPerHr) : "none"}
                 format={fmtInt}
                 suffix={caiPerHr != null ? `(=${caiPerHr.toFixed(1)}/h)` : undefined}
                 desc="中枢性無呼吸イベント数（OSCAR実測）。"
                 guide="目安：CAI 5/h未満＝問題域外（5以上で治療誘発性中枢無呼吸の目安）。"
                 extra={
-                  latestValid.ca != null
-                    ? `当夜：${fmtInt(latestValid.ca)}回` +
+                  oscarNight?.ca != null
+                    ? `${oscarValueLabel}：${fmtInt(oscarNight.ca)}回` +
                       (caiPerHr != null
                         ? ` ＝ ${caiPerHr.toFixed(1)}/h（バッジ評価に対応）`
                         : "")
-                    : "当夜：—"
+                    : `${oscarValueLabel}：—`
                 }
               />
               <NightMetric
                 label="RERA"
-                value={latestValid.rera}
+                value={oscarNight?.rera ?? null}
                 level="none"
                 format={fmtInt}
                 suffix={
@@ -441,27 +465,27 @@ export default function SummaryTab({
                 desc="呼吸努力関連覚醒の回数（OSCAR実測）。"
                 guide="目安：RERA単独の確立基準はない。RDI(推定)に合算して評価する。"
                 extra={
-                  latestValid.rera != null
-                    ? `当夜：${fmtInt(latestValid.rera)}回` +
+                  oscarNight?.rera != null
+                    ? `${oscarValueLabel}：${fmtInt(oscarNight.rera)}回` +
                       (reraPerHr != null ? ` ＝ ${reraPerHr.toFixed(1)}/h` : "") +
                       (rdiEst != null
                         ? ` → RDI(推定) ${rdiEst.toFixed(1)}/h（5超で境界・推定）`
                         : "")
-                    : "当夜：—"
+                    : `${oscarValueLabel}：—`
                 }
               />
               <NightMetric
                 label="圧力95"
-                value={latestValid.press95}
+                value={oscarNight?.press95 ?? null}
                 unit="cmH2O"
-                level={press95Badge(latestValid.press95)}
+                level={press95Badge(oscarNight?.press95 ?? null)}
                 format={fmt1}
                 desc="圧力の95パーセンタイル値（OSCAR実測）。"
                 guide={`目安：APAP上限${CPAP_PRESSURE_MAX}に対し余裕があるほど良い（上限張り付き＝圧不足の兆候）。`}
                 extra={
                   press95Margin != null
-                    ? `当夜：上限まで ${press95Margin.toFixed(1)}（余裕あり/なしはバッジに対応）。※機器設定の妥当性であり臨床評価ではない。`
-                    : "当夜：—"
+                    ? `${oscarValueLabel}：上限まで ${press95Margin.toFixed(1)}（余裕あり/なしはバッジに対応）。※機器設定の妥当性であり臨床評価ではない。`
+                    : `${oscarValueLabel}：—`
                 }
               />
             </div>
