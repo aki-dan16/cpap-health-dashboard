@@ -15,6 +15,7 @@ import type {
   BloodRow,
   WeightRow,
   MedicationEntry,
+  UpcomingTask,
 } from "@/lib/types";
 import {
   type LocationTz,
@@ -35,6 +36,7 @@ export default function Home() {
   const [blood, setBlood] = useState<BloodRow[]>([]);
   const [weight, setWeight] = useState<WeightRow[]>([]);
   const [medication, setMedication] = useState<MedicationEntry[]>([]);
+  const [tasks, setTasks] = useState<UpcomingTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -54,18 +56,20 @@ export default function Home() {
   // [28] Notionから最新データを取得（初回＆手動リフレッシュ共通）
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [c, b, w, m] = await Promise.all([
+    const [c, b, w, m, t] = await Promise.all([
       fetchRows<CpapRow>("/api/cpap"),
       fetchRows<BloodRow>("/api/blood"),
       fetchRows<WeightRow>("/api/weight"),
       fetchRows<MedicationEntry>("/api/medication"),
+      fetchRows<UpcomingTask>("/api/tasks"),
     ]);
     setCpap(c.rows);
     setBlood(b.rows);
     setWeight(w.rows);
     setMedication(m.rows);
+    setTasks(t.rows);
     setErrors(
-      [c.error, b.error, w.error, m.error].filter(Boolean) as string[]
+      [c.error, b.error, w.error, m.error, t.error].filter(Boolean) as string[]
     );
     setUpdatedAt(new Date());
     setLoading(false);
@@ -144,7 +148,12 @@ export default function Home() {
         ) : (
           <ErrorBoundary label={active} key={active}>
             {active === "summary" && (
-              <SummaryTab cpap={cpap} medication={medication} locTz={locTz} />
+              <SummaryTab
+                cpap={cpap}
+                medication={medication}
+                tasks={tasks}
+                locTz={locTz}
+              />
             )}
             {active === "trend" && (
               <TrendTab cpap={cpap} bloodDates={blood.map((b) => b.date)} />

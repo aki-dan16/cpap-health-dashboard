@@ -61,6 +61,16 @@ export interface MedicationEntry {
   memo: string;
 }
 
+/** E. 次回タスク（通院・手続き等。Notion DB連動） */
+export interface UpcomingTask {
+  title: string;
+  priority: string | null; // 重要度（🔴最重要 / 🟡注意 / 🟢参考）
+  status: string | null; // 状態（未着手 / 進行中 / 完了）
+  detail: string; // 詳細
+  due: string | null; // 期限（YYYY-MM-DD）
+  contact: string; // 連絡先
+}
+
 export interface ApiResponse<T> {
   rows: T[];
   error?: string;

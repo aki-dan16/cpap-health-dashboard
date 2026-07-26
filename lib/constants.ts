@@ -132,12 +132,11 @@ export const SUPP_PM: string[] = [
 export const SUPP_HOLD =
   "KSM-66アシュワガンダ（ALT高値のため7月採血後まで開始中止）";
 
-/* ---------- 次回タスク/通院（固定） ---------- */
-export const NEXT_TASKS: string[] = [
-  "💉 Zepbound PA結果確認（相馬クリニック 808-358-2182）",
-  "🩸 ALT再検査（7月予定）",
-  "📦 マスクS→MW交換（8月Coastal 808-545-2500）",
-];
+/* ---------- E. 次回タスク data_source_id ----------
+   Notion DB連動（固定配列は廃止）。env で上書き可・未設定なら既定の data_source_id を使う。
+   ※ Notion の data_source_id は非機密（アクセスには NOTION_TOKEN が必須）。 */
+export const TASKS_DS_ID =
+  process.env.NOTION_TASKS_DS_ID ?? "4627913e-4220-451e-a940-f5408dc26bcb";
 
 /* ---------- D. 投薬ログ DB ID（env。実値は各自で .env.local / Vercel に設定） ---------- */
 export const MEDICATION_DB_ID = process.env.NOTION_MEDICATION_DB_ID;

@@ -1,8 +1,8 @@
 "use client";
 
-import type { CpapRow, MedicationEntry } from "@/lib/types";
+import type { CpapRow, MedicationEntry, UpcomingTask } from "@/lib/types";
 import EmptyState from "./EmptyState";
-import { NEXT_TASKS, CPAP_PRESSURE_MAX } from "@/lib/constants";
+import { CPAP_PRESSURE_MAX } from "@/lib/constants";
 import { dupixentSchedule } from "@/lib/medication";
 import {
   SLEEP_PERIODS,
@@ -119,10 +119,16 @@ function levelDot(level: Level): string {
   return LEVEL_DOT[level] ? ` ${LEVEL_DOT[level]}` : "";
 }
 
-/** ISO日付（YYYY-MM-DD）を「M/D」表記にする（Dupixentスケジュール表示用）。 */
+/** ISO日付（YYYY-MM-DD）を「M/D」表記にする（Dupixentスケジュール・期限表示用）。 */
 function mdFormat(iso: string): string {
   const [, m, d] = iso.split("-");
   return `${Number(m)}/${Number(d)}`;
+}
+
+/** 重要度セレクト値（例「🔴最重要」）の先頭絵文字だけを取り出す。無ければ空。 */
+function priorityLead(priority: string | null): string {
+  if (!priority) return "";
+  return Array.from(priority)[0] ?? "";
 }
 
 /* ---------- 比較パネル共通の指標カラム定義（3パネルで共有） ----------
@@ -231,10 +237,12 @@ function MetricRow({
 export default function SummaryTab({
   cpap,
   medication = [],
+  tasks = [],
   locTz = "HST",
 }: {
   cpap: CpapRow[];
   medication?: MedicationEntry[];
+  tasks?: UpcomingTask[];
   locTz?: LocationTz;
 }) {
   if (cpap.length === 0) {
@@ -763,21 +771,60 @@ export default function SummaryTab({
         </p>
       </section>
 
-      {/* 次回タスク・通院 */}
+      {/* 次回タスク・通院（Notion E. 次回タスク DB連動） */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-gray-300">
           次回タスク / 通院
         </h2>
-        <ul className="space-y-2">
-          {NEXT_TASKS.map((t, i) => (
-            <li
-              key={i}
-              className="rounded-lg border border-gray-800 bg-[#161616] px-4 py-3 text-sm text-gray-200"
-            >
-              {t}
-            </li>
-          ))}
-        </ul>
+        {tasks.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-gray-700 bg-[#141414] px-4 py-6 text-center text-sm text-gray-500">
+            未完了のタスクはありません。
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {tasks.map((t, i) => (
+              <li
+                key={i}
+                className="rounded-lg border border-gray-800 bg-[#161616] px-4 py-3 text-sm"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    {priorityLead(t.priority) && (
+                      <span className="shrink-0 leading-6">
+                        {priorityLead(t.priority)}
+                      </span>
+                    )}
+                    <div>
+                      <div className="font-medium text-gray-100">
+                        {t.title}
+                        {t.status === "進行中" && (
+                          <span className="ml-2 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-normal text-sky-300">
+                            進行中
+                          </span>
+                        )}
+                      </div>
+                      {t.detail && (
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          {t.detail}
+                        </p>
+                      )}
+                      {t.contact && (
+                        <p className="mt-0.5 text-[11px] text-gray-500">
+                          📞 {t.contact}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {t.due && (
+                    <span className="shrink-0 text-xs text-gray-400">
+                      期限 {mdFormat(t.due)}
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* [21] CPAPコンプライアンス（保険要件・代理値）— 下部に小さく表示。誤用防止の注記を維持。 */}
