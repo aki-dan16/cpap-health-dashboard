@@ -8,6 +8,7 @@ import HistoryTab from "./components/HistoryTab";
 import BloodTab from "./components/BloodTab";
 import WeightTab from "./components/WeightTab";
 import MedTab from "./components/MedTab";
+import NextInjectionBanner from "./components/NextInjectionBanner";
 import ErrorBoundary from "./components/ErrorBoundary";
 import type {
   ApiResponse,
@@ -123,6 +124,9 @@ export default function Home() {
           </a>
         </div>
       </header>
+
+      {/* 最上部：次回注射（常時表示・自前fetch。失敗時は自動で非表示） */}
+      <NextInjectionBanner />
 
       <TabNav active={active} onChange={setActive} />
 

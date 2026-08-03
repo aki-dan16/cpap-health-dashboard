@@ -75,6 +75,13 @@ export function isBradycardiaAlert(v: number | null): boolean {
   return v != null && v < 40;
 }
 
+/** 次回注射までの残日数の評価。<=0🔴 / 1-2🟡 / >=3🟢（色は LEVEL_* に集約） */
+export function levelInjectionDays(daysUntil: number): Level {
+  if (daysUntil <= 0) return "red";
+  if (daysUntil <= 2) return "yellow";
+  return "green";
+}
+
 /* ---------- 血液検査の基準値外判定（true = 異常🔴） ---------- */
 
 export const bloodAbnormal = {

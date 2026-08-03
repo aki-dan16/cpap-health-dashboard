@@ -1,6 +1,11 @@
 import { Client } from "@notionhq/client";
 import { parseDateTs } from "@/lib/health";
-import type { MedicationEntry, UpcomingTask } from "@/lib/types";
+import { todayInTz, diffDaysIso } from "@/lib/tz";
+import type {
+  MedicationEntry,
+  UpcomingTask,
+  NextInjection,
+} from "@/lib/types";
 
 /**
  * Notion API v5（@notionhq/client 5.x）対応。
@@ -48,15 +53,15 @@ async function resolveDataSourceId(databaseId: string): Promise<string> {
 }
 
 /**
- * data_source_id を直接指定して全レコードをページネーションで取得する。
- * database_id を持たず data_source_id が既知の場合（E. 次回タスク等）に使う。
+ * data_source_id を直接指定して全ページを取得する（created_time 付き）。
+ * 日付同値時の tiebreak 等でページのメタ情報が要る場合に使う。
  */
-export async function queryAllRowsByDataSource(
+export async function queryAllPagesByDataSource(
   dataSourceId: string
-): Promise<Record<string, unknown>[]> {
+): Promise<{ createdTime: string; props: Record<string, unknown> }[]> {
   const notion = getNotionClient();
 
-  const rows: Record<string, unknown>[] = [];
+  const out: { createdTime: string; props: Record<string, unknown> }[] = [];
   let cursor: string | undefined = undefined;
 
   do {
@@ -66,15 +71,29 @@ export async function queryAllRowsByDataSource(
       page_size: 100,
     });
     for (const page of res.results) {
-      // ページオブジェクトの properties を取り出す
-      const props = (page as { properties?: Record<string, unknown> })
-        .properties;
-      if (props) rows.push(props);
+      const p = page as {
+        created_time?: string;
+        properties?: Record<string, unknown>;
+      };
+      if (p.properties) {
+        out.push({ createdTime: p.created_time ?? "", props: p.properties });
+      }
     }
     cursor = res.has_more ? res.next_cursor ?? undefined : undefined;
   } while (cursor);
 
-  return rows;
+  return out;
+}
+
+/**
+ * data_source_id を直接指定して全レコードの properties を取得する。
+ * database_id を持たず data_source_id が既知の場合（E. 次回タスク等）に使う。
+ */
+export async function queryAllRowsByDataSource(
+  dataSourceId: string
+): Promise<Record<string, unknown>[]> {
+  const pages = await queryAllPagesByDataSource(dataSourceId);
+  return pages.map((p) => p.props);
 }
 
 /**
@@ -205,4 +224,51 @@ export async function getUpcomingTasks(
       due: t.due,
       contact: t.contact,
     }));
+}
+
+/**
+ * D. 投薬ログ（data_source_id 指定）から Dupixent / Zepbound の「次回注射」を算出する。
+ * 薬剤ごとに日付（title文字列）降順・同値は created_time 降順で並べ、
+ * 「次回予定」が入った最新の1行を採用する。残日数は Pacific/Honolulu の当日基準。
+ * 返却順は Zepbound → Dupixent の固定。
+ */
+export async function getNextInjections(
+  dataSourceId: string
+): Promise<NextInjection[]> {
+  const pages = await queryAllPagesByDataSource(dataSourceId);
+  const rows = pages.map((pg) => ({
+    date: getTitle(pg.props["日付"]),
+    drug: getSelect(pg.props["薬剤"]),
+    dose: getText(pg.props["用量"]),
+    nextDue: getDate(pg.props["次回予定"]),
+    createdTime: pg.createdTime,
+  }));
+
+  const todayHst = todayInTz("HST", new Date());
+  const targets: NextInjection["drug"][] = ["Zepbound", "Dupixent"];
+  const result: NextInjection[] = [];
+
+  for (const drug of targets) {
+    const chosen = rows
+      .filter((r) => r.drug === drug)
+      .sort((a, b) => {
+        const byDate = parseDateTs(b.date) - parseDateTs(a.date);
+        if (byDate !== 0) return byDate;
+        // 日付同値は created_time が新しい方を優先
+        return (Date.parse(b.createdTime) || 0) - (Date.parse(a.createdTime) || 0);
+      })
+      .find((r) => r.nextDue != null); // 次回予定が空の行はスキップ
+
+    if (!chosen || !chosen.nextDue) continue;
+
+    result.push({
+      drug,
+      lastDate: chosen.date,
+      nextDate: chosen.nextDue,
+      dose: chosen.dose || null,
+      daysUntil: diffDaysIso(chosen.nextDue, todayHst),
+    });
+  }
+
+  return result;
 }

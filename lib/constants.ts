@@ -141,6 +141,11 @@ export const TASKS_DS_ID =
 /* ---------- D. 投薬ログ DB ID（env。実値は各自で .env.local / Vercel に設定） ---------- */
 export const MEDICATION_DB_ID = process.env.NOTION_MEDICATION_DB_ID;
 
+/* ---------- D. 投薬ログ data_source_id（次回注射バナー用） ----------
+   env MEDS_DS_ID で上書き可・未設定なら既定の data_source_id を使う（TASKS_DS_ID と同パターン）。 */
+export const MEDS_DS_ID =
+  process.env.MEDS_DS_ID ?? "33119d26-9b3f-45f3-a80f-a3ab778a7a4f";
+
 /* ---------- 投薬ログ：薬剤バッジ色 ---------- */
 export const MED_BADGE_COLOR: Record<string, string> = {
   Dupixent: "bg-sky-500/15 text-sky-300 border border-sky-500/30",

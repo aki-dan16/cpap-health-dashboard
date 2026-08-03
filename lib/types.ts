@@ -61,6 +61,15 @@ export interface MedicationEntry {
   memo: string;
 }
 
+/** D. 投薬ログから算出する「次回注射」表示用（Dupixent / Zepbound） */
+export interface NextInjection {
+  drug: "Dupixent" | "Zepbound";
+  lastDate: string; // 最終接種日（YYYY-MM-DD）
+  nextDate: string; // 次回予定（YYYY-MM-DD）
+  dose: string | null; // 用量
+  daysUntil: number; // 今日(HST)との差。過去なら負数
+}
+
 /** E. 次回タスク（通院・手続き等。Notion DB連動） */
 export interface UpcomingTask {
   title: string;
