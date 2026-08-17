@@ -9,29 +9,42 @@ import {
   MED_BADGE_COLOR_DEFAULT,
 } from "@/lib/constants";
 import type { MedicationEntry } from "@/lib/types";
-import { todayInTz, diffDaysIso, type LocationTz } from "@/lib/tz";
-import { nextUpcomingMedication } from "@/lib/medication";
+
+function drugBadgeClass(drug: string | null): string {
+  return (drug && MED_BADGE_COLOR[drug]) ?? MED_BADGE_COLOR_DEFAULT;
+}
 
 export default function MedTab({
   medication = [],
-  locTz = "HST",
 }: {
   medication?: MedicationEntry[];
-  locTz?: LocationTz;
 }) {
-  const todayStr = todayInTz(locTz, new Date());
-  // [次回投薬予定] 薬剤を問わず直近未来日を1件（無ければ直近ログの予定を「要更新」として表示）
-  const nextDue = nextUpcomingMedication(medication, todayStr);
-  const nextDueDiff =
-    nextDue?.nextDue != null ? diffDaysIso(nextDue.nextDue, todayStr) : null;
-
   return (
     <div className="space-y-6">
       {/* 処方薬 */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-gray-300">💊 処方薬</h2>
-        <div className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="w-full min-w-[640px] text-sm">
+
+        {/* モバイル：カード型（横スクロールを出さない） */}
+        <div className="space-y-2 sm:hidden">
+          {RX.map((m) => (
+            <div
+              key={m.name}
+              className="rounded-lg border border-gray-800 bg-[#161616] p-3 text-base"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-semibold text-gray-100">{m.name}</span>
+                <span className="text-sm text-gray-300">{m.dose}</span>
+              </div>
+              <div className="mt-1 text-sm text-gray-400">{m.timing}</div>
+              <div className="mt-0.5 text-sm text-gray-300">{m.purpose}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* タブレット/デスクトップ：テーブル */}
+        <div className="hidden overflow-x-auto rounded-xl border border-gray-800 sm:block">
+          <table className="w-full text-sm">
             <thead className="bg-[#1a1a1a] text-gray-400">
               <tr>
                 <th className="px-3 py-2 text-left">薬剤</th>
@@ -60,94 +73,88 @@ export default function MedTab({
         <SuppCard title="🌙 サプリ（夜）" items={SUPP_PM} />
       </div>
 
-      {/* 保留中 */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">⏸ 保留中</h2>
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-          {SUPP_HOLD}
-        </div>
-      </section>
+      {/* 保留中（空なら非表示） */}
+      {SUPP_HOLD && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-gray-300">⏸ 保留中</h2>
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+            {SUPP_HOLD}
+          </div>
+        </section>
+      )}
 
       {/* 投薬ログ（Notion D. 投薬ログ DB） */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-gray-300">💉 投薬ログ</h2>
-
-        {nextDue?.nextDue && (
-          <div
-            className={`mb-3 rounded-xl border p-4 ${
-              nextDueDiff != null && nextDueDiff < 0
-                ? "border-red-500/40 bg-red-500/10"
-                : "border-sky-500/40 bg-sky-500/10"
-            }`}
-          >
-            <div className="flex items-center gap-2 text-gray-300">
-              <span className="text-lg">💉</span>
-              <span className="font-bold">次回投薬予定</span>
-            </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-base font-semibold text-gray-200">
-                {nextDue.drug ?? "薬剤未設定"}
-              </span>
-              <span className="text-2xl font-bold text-gray-100">
-                {nextDue.nextDue}
-              </span>
-              {nextDueDiff != null && (
-                <span
-                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
-                    nextDueDiff < 0
-                      ? "bg-red-500/20 text-red-300"
-                      : "bg-sky-500/20 text-sky-300"
-                  }`}
-                >
-                  {nextDueDiff < 0
-                    ? `⚠️ 要更新（${Math.abs(nextDueDiff)}日超過）`
-                    : nextDueDiff === 0
-                      ? "本日"
-                      : `あと${nextDueDiff}日`}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
 
         {medication.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-700 bg-[#141414] px-4 py-6 text-center text-sm text-gray-500">
             記録なし
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-gray-800">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead className="bg-[#1a1a1a] text-gray-400">
-                <tr>
-                  <th className="px-3 py-2 text-left">日付</th>
-                  <th className="px-3 py-2 text-left">薬剤</th>
-                  <th className="px-3 py-2 text-left">用量</th>
-                  <th className="px-3 py-2 text-left">部位</th>
-                  <th className="px-3 py-2 text-left">メモ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800">
-                {medication.map((m, i) => (
-                  <tr key={`${m.date}-${i}`} className="hover:bg-[#161616]">
-                    <td className="px-3 py-2 text-gray-300">{m.date}</td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`rounded-md px-2 py-0.5 text-xs font-medium ${
-                          (m.drug && MED_BADGE_COLOR[m.drug]) ??
-                          MED_BADGE_COLOR_DEFAULT
-                        }`}
-                      >
-                        {m.drug ?? "—"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-gray-300">{m.dose || "—"}</td>
-                    <td className="px-3 py-2 text-gray-400">{m.site ?? "—"}</td>
-                    <td className="px-3 py-2 text-gray-400">{m.memo || "—"}</td>
+          <>
+            {/* モバイル：カード型 */}
+            <div className="space-y-2 sm:hidden">
+              {medication.map((m, i) => (
+                <div
+                  key={`${m.date}-${i}`}
+                  className="rounded-lg border border-gray-800 bg-[#161616] p-3 text-base"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-gray-300">{m.date}</span>
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-xs font-medium ${drugBadgeClass(
+                        m.drug
+                      )}`}
+                    >
+                      {m.drug ?? "—"}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-sm text-gray-300">
+                    用量 {m.dose || "—"}
+                    <span className="ml-2 text-gray-500">部位 {m.site ?? "—"}</span>
+                  </div>
+                  {m.memo && (
+                    <div className="mt-0.5 text-sm text-gray-400">{m.memo}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* タブレット/デスクトップ：テーブル */}
+            <div className="hidden overflow-x-auto rounded-xl border border-gray-800 sm:block">
+              <table className="w-full text-sm">
+                <thead className="bg-[#1a1a1a] text-gray-400">
+                  <tr>
+                    <th className="px-3 py-2 text-left">日付</th>
+                    <th className="px-3 py-2 text-left">薬剤</th>
+                    <th className="px-3 py-2 text-left">用量</th>
+                    <th className="px-3 py-2 text-left">部位</th>
+                    <th className="px-3 py-2 text-left">メモ</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {medication.map((m, i) => (
+                    <tr key={`${m.date}-${i}`} className="hover:bg-[#161616]">
+                      <td className="px-3 py-2 text-gray-300">{m.date}</td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`rounded-md px-2 py-0.5 text-xs font-medium ${drugBadgeClass(
+                            m.drug
+                          )}`}
+                        >
+                          {m.drug ?? "—"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-300">{m.dose || "—"}</td>
+                      <td className="px-3 py-2 text-gray-400">{m.site ?? "—"}</td>
+                      <td className="px-3 py-2 text-gray-400">{m.memo || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
@@ -160,7 +167,7 @@ function SuppCard({ title, items }: { title: string; items: string[] }) {
       <h2 className="mb-3 text-sm font-semibold text-gray-300">{title}</h2>
       <ul className="space-y-2">
         {items.map((s) => (
-          <li key={s} className="flex items-start gap-2 text-sm text-gray-200">
+          <li key={s} className="flex items-start gap-2 text-base text-gray-200">
             <span className="mt-1 text-gray-600">•</span>
             <span>{s}</span>
           </li>

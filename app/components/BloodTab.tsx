@@ -155,7 +155,42 @@ export default function BloodTab({ blood }: { blood: BloodRow[] }) {
         </div>
       </section>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-800">
+      {/* モバイル：日付ごとのカード型（横スクロールを出さない） */}
+      <div className="space-y-2 sm:hidden">
+        {desc.map((r, i) => (
+          <div
+            key={i}
+            className="rounded-lg border border-gray-800 bg-[#161616] p-3"
+          >
+            <div className="text-base font-medium text-gray-200">{r.date}</div>
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              {COLUMNS.map((c) => {
+                const v = r[c.key] as number | null;
+                const abnormal = c.check ? bloodAbnormal[c.check](v) : false;
+                return (
+                  <div
+                    key={c.key as string}
+                    className="flex items-baseline justify-between gap-2"
+                  >
+                    <span className="text-gray-500">{c.label}</span>
+                    <span
+                      className={
+                        abnormal ? "font-bold text-red-400" : "text-gray-200"
+                      }
+                    >
+                      {formatNum(v)}
+                      {abnormal && " 🔴"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* タブレット/デスクトップ：テーブル */}
+      <div className="hidden overflow-x-auto rounded-xl border border-gray-800 sm:block">
         <table className="w-full min-w-[860px]">
           <thead className="bg-[#1a1a1a]">
             <tr>

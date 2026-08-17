@@ -91,46 +91,57 @@ export interface Med {
   purpose: string;
 }
 export const RX: Med[] = [
+  { name: "Zepbound", dose: "2.5mg SC", timing: "週1回", purpose: "減量（GIP/GLP-1）" },
   {
-    name: "リベルサス",
-    dose: "3mg",
-    timing: "毎朝起床直後・空腹・水120ml以下・服用後30分絶食",
-    purpose: "GLP-1減量",
-  },
-  { name: "アムロジピン", dose: "5mg", timing: "毎朝", purpose: "降圧（CCB）" },
-  {
-    name: "ロサルタン",
-    dose: "50mg",
-    timing: "毎朝",
-    purpose: "降圧（ARB）+腎保護",
-  },
-  {
-    name: "ロスバスタチン",
-    dose: "5mg",
-    timing: "毎晩",
-    purpose: "脂質（スタチン）",
-  },
-  {
-    name: "デュピクセント",
+    name: "Dupixent",
     dose: "300mg SC",
     timing: "2週に1回",
-    purpose: "アトピー",
+    purpose: "アトピー性皮膚炎",
   },
+  { name: "Amlodipine", dose: "5mg", timing: "毎朝", purpose: "降圧（CCB）" },
+  { name: "Losartan", dose: "50mg", timing: "毎朝", purpose: "降圧（ARB）＋腎保護" },
+  { name: "Rosuvastatin", dose: "5mg", timing: "毎晩", purpose: "脂質（スタチン）" },
 ];
 export const SUPP_AM: string[] = [
-  "O.N.E. Multivitamin",
-  "Nordic Naturals Omega-3 2cap（計4cap/日）",
-  "Magnesium Glycinate 1cap",
+  "O.N.E. Multivitamin 1カプセル",
+  "Magnesium 2カプセル（Zepboundによる便秘対策）",
 ];
 export const SUPP_PM: string[] = [
-  "Nordic Naturals Omega-3 2cap",
-  "Magnesium Glycinate 2cap",
-  "Metagenics D3 5000+K",
-  "NAC 600mg",
-  "Melatonin 3mg（就寝前）",
+  "Metagenics D3 5000+K 1カプセル",
+  "Melatonin 1カプセル",
 ];
-export const SUPP_HOLD =
-  "KSM-66アシュワガンダ（ALT高値のため7月採血後まで開始中止）";
+// 保留中は現在なし（アシュワガンダ不採用）。空なら薬・サプリタブでセクション非表示。
+export const SUPP_HOLD = "";
+
+/* ---------- データ欠損の注記（表示層のみ。Notionは変更しない） ----------
+   欠損日を「未使用日」と区別して注記する。 */
+export interface DataGap {
+  dates: string[]; // 対象日（YYYY-MM-DD）
+  label: string; // 短いラベル（グレー表示）
+  detail: string; // 補足
+}
+export const DATA_GAPS: DataGap[] = [
+  {
+    dates: ["2026-08-15", "2026-08-16"],
+    label: "欠損（通信障害・使用あり）",
+    detail:
+      "台風Lala接近による通信障害でデータ未同期（8/15夜〜8/16）。CPAP自体は使用。",
+  },
+];
+
+/* ---------- 次回タスク（Notion E.）の表示除外（substring一致） ----------
+   ※Notion側は変更しない。恒久的にはNotionで状態=完了／削除するのが正。
+   完了済みタスクは getUpcomingTasks の「状態≠完了」で既に除外される。 */
+export const HIDDEN_TASK_MATCHERS: string[] = [
+  "COBRA",
+  "大量確保",
+  "90日",
+  "最終受診",
+  "予防接種",
+  "Dupixentの記録",
+  "次回分の手配",
+  "リベルサス中断",
+];
 
 /* ---------- E. 次回タスク data_source_id ----------
    Notion DB連動（固定配列は廃止）。env で上書き可・未設定なら既定の data_source_id を使う。

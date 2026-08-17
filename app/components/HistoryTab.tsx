@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CpapRow } from "@/lib/types";
 import EmptyState from "./EmptyState";
+import DataGapNote from "./DataGapNote";
 import { withNightTz, nightTz } from "@/lib/tz";
 import {
   LEVEL_TEXT,
@@ -60,10 +61,11 @@ export default function HistoryTab({ cpap }: { cpap: CpapRow[] }) {
   const th = "px-3 py-2 text-xs font-semibold text-gray-400 whitespace-nowrap";
   const td = "px-3 py-2 text-sm text-gray-200 whitespace-nowrap";
   const ctrl =
-    "rounded-md border border-gray-700 bg-[#161616] px-2 py-1 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-sky-500";
+    "min-h-11 rounded-md border border-gray-700 bg-[#161616] px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-sky-500";
 
   return (
     <div className="space-y-3">
+      <DataGapNote />
       {/* [42] フィルタ／ソート */}
       <div className="flex flex-wrap items-center gap-2">
         <select
@@ -98,12 +100,12 @@ export default function HistoryTab({ cpap }: { cpap: CpapRow[] }) {
           <option value="desc">日付：新しい順</option>
           <option value="asc">日付：古い順</option>
         </select>
-        <label className="flex items-center gap-1 text-xs text-gray-400">
+        <label className="flex min-h-11 items-center gap-1.5 text-sm text-gray-400">
           <input
             type="checkbox"
             checked={validOnly}
             onChange={(e) => setValidOnly(e.target.checked)}
-            className="accent-sky-500"
+            className="h-4 w-4 accent-sky-500"
           />
           有効夜のみ
         </label>
@@ -121,8 +123,61 @@ export default function HistoryTab({ cpap }: { cpap: CpapRow[] }) {
           hint="期間・TZ・有効夜フィルタを緩めてください。"
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="w-full min-w-[960px]">
+        <>
+          {/* モバイル：カード型（横スクロールを出さない） */}
+          <div className="space-y-2 sm:hidden">
+            {rows.map((r, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-gray-800 bg-[#161616] p-3"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-base font-medium text-gray-100">
+                    {r.date}
+                  </span>
+                  <span className="text-xs text-gray-500">{nightTz(r.tz)}</span>
+                </div>
+                {r.sleepBand && (
+                  <div className="mt-0.5 text-sm text-gray-400">
+                    {withNightTz(r.sleepBand, r.tz)}
+                  </div>
+                )}
+                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  <HistField label="Seal" tone={LEVEL_TEXT[levelSeal(r.seal)]}>
+                    {fmtInt(r.seal)}
+                  </HistField>
+                  <HistField label="Events" tone={LEVEL_TEXT[levelEvents(r.events)]}>
+                    {fmt1(r.events)}
+                  </HistField>
+                  <HistField label="深睡眠">{fmtInt(r.deepSleep)}分</HistField>
+                  <HistField label="総睡眠">{fmt1(r.totalSleep)}h</HistField>
+                  <HistField label="SpO2平均">{fmt1(r.spo2Avg)}</HistField>
+                  <HistField
+                    label="SpO2最低*"
+                    tone={LEVEL_TEXT[levelSpo2Min(r.spo2Min)]}
+                  >
+                    {fmtInt(r.spo2Min)}
+                  </HistField>
+                  <HistField
+                    label="最低心拍"
+                    tone={
+                      r.minHr != null && r.minHr < 40 ? "font-bold text-red-400" : ""
+                    }
+                  >
+                    {fmtInt(r.minHr)}
+                  </HistField>
+                  <HistField label="日次RHR">{fmtInt(r.rhr)}</HistField>
+                </div>
+                {r.memo && (
+                  <div className="mt-1 text-sm text-gray-400">{r.memo}</div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* タブレット/デスクトップ：テーブル */}
+          <div className="hidden overflow-x-auto rounded-xl border border-gray-800 sm:block">
+            <table className="w-full min-w-[960px]">
             <thead className="bg-[#1a1a1a]">
               <tr>
                 <th className={`${th} text-left`}>日付</th>
@@ -190,8 +245,27 @@ export default function HistoryTab({ cpap }: { cpap: CpapRow[] }) {
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
+    </div>
+  );
+}
+
+/** モバイルカードの1フィールド（ラベル＋値）。 */
+function HistField({
+  label,
+  tone = "",
+  children,
+}: {
+  label: string;
+  tone?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-gray-500">{label}</span>
+      <span className={tone || "text-gray-200"}>{children}</span>
     </div>
   );
 }

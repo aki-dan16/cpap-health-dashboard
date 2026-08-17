@@ -1,6 +1,7 @@
 import { Client } from "@notionhq/client";
 import { parseDateTs } from "@/lib/health";
 import { todayInTz, diffDaysIso } from "@/lib/tz";
+import { HIDDEN_TASK_MATCHERS } from "@/lib/constants";
 import type {
   MedicationEntry,
   UpcomingTask,
@@ -211,6 +212,8 @@ export async function getUpcomingTasks(
       order: getNumber(p["並び順"]),
     }))
     .filter((t) => t.status !== "完了") // filter: 状態 ≠ 完了
+    // 表示除外（完了扱い等・恒久的にはNotion側で管理）
+    .filter((t) => !HIDDEN_TASK_MATCHERS.some((m) => t.title.includes(m)))
     .sort(
       (a, b) =>
         (a.order ?? Number.POSITIVE_INFINITY) -

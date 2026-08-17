@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import TabNav from "./components/TabNav";
 import SummaryTab from "./components/SummaryTab";
-import TrendTab from "./components/TrendTab";
 import HistoryTab from "./components/HistoryTab";
 import BloodTab from "./components/BloodTab";
 import WeightTab from "./components/WeightTab";
@@ -82,7 +81,7 @@ export default function Home() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col py-5 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
-      <header className="mb-2 flex items-start justify-between gap-3">
+      <header className="mb-2 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-100 sm:text-2xl">
             🫁 Sleep Dashboard
@@ -152,24 +151,14 @@ export default function Home() {
         ) : (
           <ErrorBoundary label={active} key={active}>
             {active === "summary" && (
-              <SummaryTab
-                cpap={cpap}
-                medication={medication}
-                tasks={tasks}
-                locTz={locTz}
-              />
-            )}
-            {active === "trend" && (
-              <TrendTab cpap={cpap} bloodDates={blood.map((b) => b.date)} />
+              <SummaryTab cpap={cpap} tasks={tasks} locTz={locTz} />
             )}
             {active === "history" && <HistoryTab cpap={cpap} />}
             {active === "blood" && <BloodTab blood={blood} />}
             {active === "weight" && (
               <WeightTab weight={weight} blood={blood} />
             )}
-            {active === "med" && (
-              <MedTab medication={medication} locTz={locTz} />
-            )}
+            {active === "med" && <MedTab medication={medication} />}
           </ErrorBoundary>
         )}
       </main>

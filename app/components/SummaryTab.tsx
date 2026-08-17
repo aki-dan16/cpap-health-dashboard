@@ -1,18 +1,9 @@
 "use client";
 
-import type { CpapRow, MedicationEntry, UpcomingTask } from "@/lib/types";
+import type { CpapRow, UpcomingTask } from "@/lib/types";
 import EmptyState from "./EmptyState";
+import DataGapNote from "./DataGapNote";
 import { CPAP_PRESSURE_MAX } from "@/lib/constants";
-import { dupixentSchedule } from "@/lib/medication";
-import {
-  SLEEP_PERIODS,
-  aggregate,
-  nightsInPeriod,
-  currentPeriodKey,
-  monthlyGroups,
-  type SleepPeriod,
-  type Agg,
-} from "@/lib/periods";
 import {
   withNightTz,
   todayInTz,
@@ -22,8 +13,6 @@ import {
 import {
   LEVEL_TEXT,
   LEVEL_BADGE,
-  LEVEL_DOT,
-  levelSeal,
   levelEvents,
   levelDeepSleep,
   levelTotalSleep,
@@ -49,7 +38,8 @@ import {
 
 // アラートの走査条件（変更しやすいようここに集約）— [10]
 const ALERT_WINDOW_DAYS = 7; // 走査窓。7 / 14 / 30 で切替可（直近7日基準）
-const RECENT7_DAYS = 7; // 直近7日ローリングパネルの集計窓
+const RECENT7_DAYS = 7; // 直近7日ローリングの集計窓
+const RECENT30_DAYS = 30; // 直近30日の集計窓
 const CPAP_START = "2026-05-01"; // 治療開始日。これより前は警告対象外
 const ALERT_GAP_DAYS = 3; // データ欠落アラート閾値（[12]）
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -62,7 +52,15 @@ const LEVEL_LABEL: Record<Level, string> = {
   none: "",
 };
 
-/** 最新有効夜のフル評価表示の1項目（値＋評価バッジ＋解説＋目安/参考）— [修正2/5] */
+/** null安全な平均。対象が無ければ null。 */
+function avgOf(rows: CpapRow[], key: keyof CpapRow): number | null {
+  const xs = rows
+    .map((r) => r[key])
+    .filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+}
+
+/** 最新有効夜のフル評価表示の1項目（値＋評価バッジ＋解説＋目安/参考） */
 function NightMetric({
   label,
   value,
@@ -114,12 +112,30 @@ function NightMetric({
   );
 }
 
-/** 3期間比較セル：値の後ろに小さな評価ドット（🟢🟡🔴）を併記する。 */
-function levelDot(level: Level): string {
-  return LEVEL_DOT[level] ? ` ${LEVEL_DOT[level]}` : "";
+/** 数値サマリー用の小型スタットセル。 */
+function StatCell({
+  label,
+  value,
+  sub,
+  level = "none",
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  level?: Level;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-800 bg-[#161616] p-3">
+      <div className="text-xs text-gray-400">{label}</div>
+      <div className={`mt-1 text-2xl font-bold ${LEVEL_TEXT[level]}`}>
+        {value}
+      </div>
+      {sub && <div className="mt-0.5 text-[11px] text-gray-500">{sub}</div>}
+    </div>
+  );
 }
 
-/** ISO日付（YYYY-MM-DD）を「M/D」表記にする（Dupixentスケジュール・期限表示用）。 */
+/** ISO日付（YYYY-MM-DD）を「M/D」表記にする（期限表示用）。 */
 function mdFormat(iso: string): string {
   const [, m, d] = iso.split("-");
   return `${Number(m)}/${Number(d)}`;
@@ -131,117 +147,12 @@ function priorityLead(priority: string | null): string {
   return Array.from(priority)[0] ?? "";
 }
 
-/* ---------- 比較パネル共通の指標カラム定義（3パネルで共有） ----------
-   formatter/level は lib/health 由来（表示層の責務のためここに置く）。
-   staticKey がある指標は SleepPeriod.staticValues（外部集計値）を優先表示できる。 */
-interface MetricCol {
-  key: keyof CpapRow;
-  label: string;
-  agg: Agg;
-  fmt: (v: number | null) => string;
-  unit?: string;
-  level?: (v: number | null) => Level; // 省略時は中立（バッジなし）
-  staticKey?: "spo2Avg" | "spo2Min" | "rhr" | "hrv"; // 外部集計値の対応キー
-}
-
-const COMPARE_METRICS: MetricCol[] = [
-  { key: "spo2Avg", label: "SpO2平均", agg: "avg", fmt: fmt1, unit: "%", level: levelSpo2Avg, staticKey: "spo2Avg" },
-  { key: "spo2Min", label: "SpO2最低", agg: "min", fmt: fmtInt, unit: "%", level: levelSpo2Min, staticKey: "spo2Min" },
-  { key: "events", label: "Events/hr", agg: "avg", fmt: fmt1, level: levelEvents },
-  { key: "deepSleep", label: "深睡眠", agg: "avg", fmt: fmtInt, unit: "分", level: levelDeepSleep },
-  { key: "minHr", label: "睡眠中最低心拍", agg: "avg", fmt: fmtInt, unit: "bpm" },
-  { key: "rhr", label: "日次RHR", agg: "avg", fmt: fmtInt, unit: "bpm", staticKey: "rhr" },
-  { key: "hrv", label: "HRV", agg: "avg", fmt: fmtInt, unit: "ms", staticKey: "hrv" },
-];
-
-// 月次パネル末尾の追加列：OSCAR実測AHIの月平均（デバイス真値・報告用）。
-const MONTHLY_EXTRA: MetricCol = {
-  key: "oscarAhi",
-  label: "AHI(OSCAR)",
-  agg: "avg",
-  fmt: fmt1,
-  level: oscarAhiBadge,
-};
-
-/** 1指標セルの表示内容（静的な外部集計値か、DB-Aからの集計か）を組み立てる。 */
-function metricCellText(
-  col: MetricCol,
-  rows: CpapRow[],
-  staticValues?: SleepPeriod["staticValues"],
-  muted = false // excluded期間はバッジ（基準強調）を付けない
-): string {
-  const sv = col.staticKey ? staticValues?.[col.staticKey] : undefined;
-  if (sv) return sv; // 外部集計値はそのまま（バッジなし）
-  const v = aggregate(rows, col.key, col.agg);
-  if (v == null) return "—";
-  const base = `${col.fmt(v)}${col.unit ?? ""}`;
-  const dot = !muted && col.level ? levelDot(col.level(v)) : "";
-  return `${base}${dot}`;
-}
-
-/** 比較テーブルのヘッダ行（期間ラベル列＋指標列）。 */
-function MetricHeader({
-  firstCol,
-  cols,
-}: {
-  firstCol: string;
-  cols: MetricCol[];
-}) {
-  return (
-    <thead className="bg-[#1a1a1a] text-gray-400">
-      <tr>
-        <th className="px-3 py-2 text-left">{firstCol}</th>
-        {cols.map((c) => (
-          <th key={c.key} className="px-3 py-2 whitespace-nowrap">
-            {c.label}
-          </th>
-        ))}
-      </tr>
-    </thead>
-  );
-}
-
-/** 比較テーブルの1データ行（指標カラムをまとめて描画）。 */
-function MetricRow({
-  labelCell,
-  rows,
-  cols,
-  staticValues,
-  muted = false,
-  rowClass = "",
-}: {
-  labelCell: React.ReactNode;
-  rows: CpapRow[];
-  cols: MetricCol[];
-  staticValues?: SleepPeriod["staticValues"];
-  muted?: boolean;
-  rowClass?: string;
-}) {
-  return (
-    <tr className={rowClass}>
-      <td className="px-3 py-2 text-left">{labelCell}</td>
-      {cols.map((c) => (
-        <td
-          key={c.key}
-          className={`px-3 py-2 text-center whitespace-nowrap ${
-            muted ? "text-gray-500" : "text-gray-200"
-          }`}
-        >
-          {metricCellText(c, rows, staticValues, muted)}
-        </td>
-      ))}
-    </tr>
-  );
-}
-
 export default function SummaryTab({
   cpap,
-  medication = [],
   tasks = [],
   locTz = "HST",
 }: {
   cpap: CpapRow[];
-  medication?: MedicationEntry[];
   tasks?: UpcomingTask[];
   locTz?: LocationTz;
 }) {
@@ -260,29 +171,25 @@ export default function SummaryTab({
     (a, b) => parseDateTs(b.date) - parseDateTs(a.date)
   );
   const latest = sortedDesc[0];
-  // [修正5] 評価対象は最新の「有効夜」。無効夜は評価に使わない。
+  // 評価対象は最新の「有効夜」。無効夜は評価に使わない。
   const latestValid = sortedDesc.find(isValidNight) ?? null;
   const latestIsInvalid = latestValid != null && latestValid.date !== latest.date;
 
   // アラート判定：「直近の窓 × 治療開始以降 × 有効夜」を満たす夜だけを走査する。[10]
-  // 基準日は今日の実日付ではなくデータセットの最新レコード日（ログの空き日があっても空にならない）。
   const latestTs = Math.max(...cpap.map((r) => parseDateTs(r.date)));
   const windowStartTs = latestTs - ALERT_WINDOW_DAYS * DAY_MS;
   const cpapStartTs = parseDateTs(CPAP_START);
   const eligibleNights = cpap.filter(
     (r) =>
-      parseDateTs(r.date) >= windowStartTs && // a. 直近 ALERT_WINDOW_DAYS 日以内
-      parseDateTs(r.date) >= cpapStartTs && // b. CPAP治療開始日以降
-      isValidNight(r) // c. 有効夜（総睡眠>=4h かつ 段階記録あり）
+      parseDateTs(r.date) >= windowStartTs &&
+      parseDateTs(r.date) >= cpapStartTs &&
+      isValidNight(r)
   );
-  // 🚨緊急：睡眠中最低心拍<40（有効夜限定 [11]）/ SpO2最低<85
   const bradyNights = eligibleNights.filter((r) => isBradycardiaAlert(r.minHr));
   const lowSpo2Nights = eligibleNights.filter(
     (r) => r.spo2Min != null && r.spo2Min < 85
   );
   const hasAlert = bradyNights.length > 0 || lowSpo2Nights.length > 0;
-
-  // [修正1] 「直近の注意」走査バナーはサマリーから非表示（走査ロジックは将来戻せるよう関数として温存）。
 
   // ⚠️データ欠落：最新レコード日が現在地TZの今日から ALERT_GAP_DAYS 日以上離れている（[12]）
   const latestDateStr = latest.date;
@@ -290,46 +197,40 @@ export default function SummaryTab({
   const gapDays = diffDaysIso(todayStr, latestDateStr);
   const gapAlert = gapDays >= ALERT_GAP_DAYS;
 
-  // [21] CPAPコンプライアンス（直近30日・4h以上が70%以上か）。使用時間列が無ければ総睡眠で代理。
+  // [21] CPAPコンプライアンス（直近30日・4h以上）。使用時間列が無ければ総睡眠で代理。
   const compWindowStart = latestTs - COMPLIANCE_WINDOW_DAYS * DAY_MS;
   const compNights = cpap.filter((r) => parseDateTs(r.date) >= compWindowStart);
   const compUsed = compNights.filter((r) => nightUsedFourHours(r).used).length;
-  const compReal = compNights.some((r) => r.usageHours != null); // 実使用時間データの有無
+  const compReal = compNights.some((r) => r.usageHours != null);
   const compPct =
     compNights.length > 0
       ? Math.round((compUsed / compNights.length) * 100)
       : 0;
 
-  // [パネルB] 直近7日ローリング（最新レコード日から7日窓・有効夜のみ）。常設。
-  const recent7StartTs = latestTs - RECENT7_DAYS * DAY_MS;
+  // 数値サマリー（トレンドタブの代替）：直近7日/30日の平均AHI（機内蔵Events/hr）と平均使用時間。
   const recent7 = cpap.filter(
-    (r) => parseDateTs(r.date) >= recent7StartTs && isValidNight(r)
+    (r) =>
+      parseDateTs(r.date) >= latestTs - RECENT7_DAYS * DAY_MS && isValidNight(r)
   );
+  const recent30 = cpap.filter(
+    (r) =>
+      parseDateTs(r.date) >= latestTs - RECENT30_DAYS * DAY_MS && isValidNight(r)
+  );
+  const ahi7 = avgOf(recent7, "events");
+  const ahi30 = avgOf(recent30, "events");
+  const usage30 = avgOf(recent30, "usageHours");
 
-  // [パネルA/C] 現在強調する期間キー、月次グループ（カレンダー月・有効夜のみ・昇順）。
-  const currentKey = currentPeriodKey(cpap);
-  const months = monthlyGroups(cpap);
-
-  // [投薬] 最新有効夜カードの「投薬」行用：Dupixentの3周期スケジュール（実注射/供給ペース/電話予測）
-  const dupixent = dupixentSchedule(medication, todayStr);
-
-  // [OSCAR] 表示（display）のみのフォールバック。DB-Aの各夜レコードは一切変更しない。
-  // 表示中の夜(latestValid)にOSCAR実測が無ければ、DB-A全体から代表列(AHI(OSCAR))が
-  // non-nullな最新の夜を日付降順で動的に検索し、日付ラベル付きでスナップショット表示する。
+  // [OSCAR] 表示のみのフォールバック。DB-Aの各夜レコードは一切変更しない。
   const hasOwnOscar = latestValid?.oscarAhi != null;
   const latestOscarNight: CpapRow | null = hasOwnOscar
     ? null
     : [...cpap]
         .sort((a, b) => parseDateTs(b.date) - parseDateTs(a.date))
         .find((r) => r.oscarAhi != null) ?? null;
-  const oscarNight: CpapRow | null = hasOwnOscar
-    ? latestValid
-    : latestOscarNight;
+  const oscarNight: CpapRow | null = hasOwnOscar ? latestValid : latestOscarNight;
   const oscarIsFallback = !hasOwnOscar && oscarNight != null;
-  // 各カードの微小ラベル：フォールバック時は「当夜」と誤認させないよう「実測」表記にする。
   const oscarValueLabel = oscarIsFallback ? "実測" : "当夜";
 
-  // CA/RERAの/h換算とRDI(推定)。総睡眠(h)はoscarNight（表示対象の夜）自身の値を使う。
   const caiPerHr = oscarNight
     ? perHour(oscarNight.ca, oscarNight.totalSleep)
     : null;
@@ -340,12 +241,13 @@ export default function SummaryTab({
     ? rdiEstimate(oscarNight.oscarAhi, reraPerHr)
     : null;
   const press95Margin =
-    oscarNight?.press95 != null
-      ? CPAP_PRESSURE_MAX - oscarNight.press95
-      : null;
+    oscarNight?.press95 != null ? CPAP_PRESSURE_MAX - oscarNight.press95 : null;
 
   return (
     <div className="space-y-6">
+      {/* データ欠損の注記（欠損日を未使用日と区別） */}
+      <DataGapNote />
+
       {/* 緊急アラート */}
       {hasAlert && (
         <div className="rounded-xl border border-red-500/50 bg-red-500/10 p-4">
@@ -381,9 +283,36 @@ export default function SummaryTab({
         </div>
       )}
 
-      {/* [修正1] 「直近の注意」バナーは非表示（走査ロジックは温存） */}
+      {/* 数値サマリー（AHI・使用時間） */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-gray-300">
+          睡眠サマリー（AHI・使用時間）
+        </h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <StatCell
+            label="直近7日 平均AHI"
+            value={ahi7 != null ? fmt1(ahi7) : "—"}
+            sub={`有効夜 n=${recent7.length}`}
+            level={levelEvents(ahi7)}
+          />
+          <StatCell
+            label="直近30日 平均AHI"
+            value={ahi30 != null ? fmt1(ahi30) : "—"}
+            sub={`有効夜 n=${recent30.length}`}
+            level={levelEvents(ahi30)}
+          />
+          <StatCell
+            label="平均使用時間"
+            value={usage30 != null ? `${fmt1(usage30)}h` : "—"}
+            sub={usage30 != null ? "直近30日" : "使用時間(h)列 未投入"}
+          />
+        </div>
+        <p className="mt-1 text-[11px] text-gray-600">
+          ※ AHIは機内蔵Events/hr（有効夜平均）。日々の傾向確認用の参考値です。
+        </p>
+      </section>
 
-      {/* [修正5] 最新有効夜のフル評価カード */}
+      {/* 最新有効夜のフル評価カード */}
       <section>
         {latestValid ? (
           <>
@@ -402,14 +331,6 @@ export default function SummaryTab({
               </p>
             )}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <NightMetric
-                label="Seal"
-                value={latestValid.seal}
-                level={levelSeal(latestValid.seal)}
-                format={fmtInt}
-                desc="マスクの密閉度。CPAPの効きを左右する最重要指標。"
-                guide={METRIC_REFERENCE.seal}
-              />
               <NightMetric
                 label="Events/hr"
                 value={latestValid.events}
@@ -587,42 +508,6 @@ export default function SummaryTab({
             <p className="mt-1 text-[11px] text-gray-600">
               評価基準：AHI・CAI＝確立した一般目安／RERA・RDI＝推定／圧力95＝機器設定の妥当性（臨床評価ではない）。医療判断は主治医。
             </p>
-
-            {/* [投薬] Dupixent 3周期スケジュール（実注射/供給ペース/電話予測）。最終注射が無ければ非表示 */}
-            {dupixent.lastInjection &&
-              dupixent.actualNext &&
-              dupixent.supplyNext &&
-              dupixent.nextCall &&
-              dupixent.delivery && (
-                <div className="mt-3 rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-xs">
-                  <div className="font-semibold text-gray-300">
-                    💉 Dupixent
-                  </div>
-                  <div className="mt-1 text-gray-500">
-                    最終注射：
-                    <span className="text-gray-200">
-                      {mdFormat(dupixent.lastInjection)}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 text-sky-300">
-                    実・次回(3週)：
-                    <span className="text-sm font-semibold">
-                      {mdFormat(dupixent.actualNext)}
-                    </span>
-                    <span className="ml-1 text-[11px] text-sky-400/80">
-                      （推定・本人運用）
-                    </span>
-                  </div>
-                  <div className="mt-0.5 text-gray-500">
-                    供給上(2週)：{mdFormat(dupixent.supplyNext)}
-                    （処方ペース）
-                  </div>
-                  <div className="mt-0.5 text-gray-500">
-                    次回電話(予測)：{mdFormat(dupixent.nextCall)}頃 → 受取
-                    {mdFormat(dupixent.delivery)}頃（月1・推定）
-                  </div>
-                </div>
-              )}
           </>
         ) : (
           <EmptyState
@@ -633,159 +518,17 @@ export default function SummaryTab({
         )}
       </section>
 
-      {/* パネルA：期間比較（条件イベント区切り・config駆動） */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">
-          期間比較（条件区切り）
-        </h2>
-        <div className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="w-full min-w-[720px] text-sm">
-            <MetricHeader firstCol="期間" cols={COMPARE_METRICS} />
-            <tbody className="divide-y divide-gray-800">
-              {SLEEP_PERIODS.map((p) => {
-                const isStatic = p.staticValues != null;
-                const rows = isStatic ? [] : nightsInPeriod(cpap, p);
-                const isCurrent = p.key === currentKey;
-                const rowClass = p.excluded
-                  ? "bg-[#141414] opacity-60"
-                  : isCurrent
-                    ? "bg-sky-500/10 ring-1 ring-inset ring-sky-500/40"
-                    : "bg-[#141414]";
-                return (
-                  <MetricRow
-                    key={p.key}
-                    rows={rows}
-                    cols={COMPARE_METRICS}
-                    staticValues={p.staticValues}
-                    muted={p.excluded}
-                    rowClass={rowClass}
-                    labelCell={
-                      <span
-                        className={
-                          p.excluded
-                            ? "text-gray-500"
-                            : isCurrent
-                              ? "text-sky-300"
-                              : "text-gray-300"
-                        }
-                      >
-                        {p.excluded && "⚠️ "}
-                        {p.label}
-                        {isCurrent && (
-                          <span className="ml-1 rounded bg-sky-500/20 px-1 text-[10px] text-sky-300">
-                            現在
-                          </span>
-                        )}
-                        <span className="ml-1 block text-[10px] text-gray-500">
-                          {p.excluded
-                            ? "異常/除外"
-                            : isStatic
-                              ? "外部集計"
-                              : `n=${rows.length}`}
-                        </span>
-                      </span>
-                    }
-                  />
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-1 text-xs text-gray-600">
-          ※ 治療条件が変わったイベントで区間を区切り、各区間はDB-Aから自動集計（有効夜のみ）。CPAP前・S期は外部集計ベースライン。旅行(異常)は基準強調に使いません。HRV等はDB-A未投入だと「—」。
-        </p>
-      </section>
-
-      {/* パネルB：直近7日ローリング（常設・条件区切りとは独立） */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">
-          直近7日間（有効夜）
-        </h2>
-        <div className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="w-full min-w-[720px] text-sm">
-            <MetricHeader firstCol="期間" cols={COMPARE_METRICS} />
-            <tbody className="divide-y divide-gray-800">
-              <MetricRow
-                rows={recent7}
-                cols={COMPARE_METRICS}
-                rowClass="bg-emerald-500/5"
-                labelCell={
-                  <span className="text-emerald-300">
-                    直近7日間
-                    <span className="ml-1 block text-[10px] text-gray-500">
-                      最新記録日基準・n={recent7.length}
-                    </span>
-                  </span>
-                }
-              />
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-1 text-xs text-gray-600">
-          ※ 最新レコード日から遡って7日間の有効夜を集計。「今、良くなっているか」を早く見るための枠です。
-        </p>
-      </section>
-
-      {/* パネルC：月次（カレンダー月） */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">月次</h2>
-        <div className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="w-full min-w-[800px] text-sm">
-            <MetricHeader
-              firstCol="月"
-              cols={[...COMPARE_METRICS, MONTHLY_EXTRA]}
-            />
-            <tbody className="divide-y divide-gray-800">
-              {months.length === 0 ? (
-                <tr className="bg-[#141414]">
-                  <td
-                    colSpan={COMPARE_METRICS.length + 2}
-                    className="px-3 py-3 text-center text-gray-500"
-                  >
-                    —
-                  </td>
-                </tr>
-              ) : (
-                months.map((m) => (
-                  <MetricRow
-                    key={m.month}
-                    rows={m.rows}
-                    cols={[...COMPARE_METRICS, MONTHLY_EXTRA]}
-                    rowClass="bg-[#141414]"
-                    labelCell={
-                      <span className="text-gray-300">
-                        {m.month}
-                        <span className="ml-1 block text-[10px] text-gray-500">
-                          n={m.rows.length}
-                        </span>
-                      </span>
-                    }
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-1 text-xs text-gray-600">
-          ※ カレンダー月ごとの平均（有効夜のみ）。長期の地合い・報告用。AHI(OSCAR)はOSCAR実測がある夜のみ月平均。月次コンプライアンスは下部の直近{COMPLIANCE_WINDOW_DAYS}日表示と定義が二重化するためここには出しません。
-        </p>
-      </section>
-
-      {/* 次回タスク・通院（Notion E. 次回タスク DB連動） */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-300">
-          次回タスク / 通院
-        </h2>
-        {tasks.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-gray-700 bg-[#141414] px-4 py-6 text-center text-sm text-gray-500">
-            未完了のタスクはありません。
-          </p>
-        ) : (
+      {/* 次回タスク・通院（Notion E. 次回タスク DB連動）。空ならセクションごと非表示 */}
+      {tasks.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-gray-300">
+            次回タスク / 通院
+          </h2>
           <ul className="space-y-2">
             {tasks.map((t, i) => (
               <li
                 key={i}
-                className="rounded-lg border border-gray-800 bg-[#161616] px-4 py-3 text-sm"
+                className="rounded-lg border border-gray-800 bg-[#161616] px-4 py-3 text-base"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2">
@@ -824,8 +567,8 @@ export default function SummaryTab({
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        </section>
+      )}
 
       {/* [21] CPAPコンプライアンス（保険要件・代理値）— 下部に小さく表示。誤用防止の注記を維持。 */}
       <p className="rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-[11px] text-gray-500">
@@ -837,7 +580,7 @@ export default function SummaryTab({
           : "総睡眠(h)ベースの代理値。正式な保険要件提示には使用時間(h)列が必要。"}
       </p>
 
-      {/* [29] 運用注記：アプリ内/外の境界 */}
+      {/* 運用注記：アプリ内/外の境界 */}
       <p className="rounded-lg border border-gray-800 bg-[#141414] px-3 py-2 text-[11px] text-gray-500">
         ℹ️ 運用メモ：myAir画像 →数値抽出 → DB追記は<strong className="text-gray-400">チャット経由</strong>で行います（アプリ内完結ではありません）。本ダッシュボードはNotionに入った数値の閲覧・分析専用です。
       </p>
